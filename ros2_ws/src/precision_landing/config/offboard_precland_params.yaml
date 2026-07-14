@@ -84,3 +84,8 @@ offboard_precland_controller:
     low_alt_max_err: 0.1
     search_alt: 10.0
     search_alt_max: 11.0
+
+    # --- GOTO_BOX Configuration ---
+    goto_box_alt: 10.0
+    goto_box_arrival_radius: 3.0
+    box_telemetry_topic: "/b1/telemetry"

@@ -84,6 +84,9 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   this->declare_parameter<double>("camera_mount_roll");
   this->declare_parameter<double>("camera_mount_pitch");
   this->declare_parameter<double>("camera_mount_yaw");
+  this->declare_parameter<double>("goto_box_alt", 10.0);
+  this->declare_parameter<double>("goto_box_arrival_radius", 3.0);
+  this->declare_parameter<std::string>("box_telemetry_topic", "/b1/telemetry");
 
   // --- Get Parameters ---
   camera_x_to_body_east_sign_ = this->get_parameter("camera_x_to_body_east_sign").as_double();
@@ -159,6 +162,9 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   camera_mount_roll_ = this->get_parameter("camera_mount_roll").as_double();
   camera_mount_pitch_ = this->get_parameter("camera_mount_pitch").as_double();
   camera_mount_yaw_ = this->get_parameter("camera_mount_yaw").as_double();
+  goto_box_alt_ = this->get_parameter("goto_box_alt").as_double();
+  goto_box_arrival_radius_ = this->get_parameter("goto_box_arrival_radius").as_double();
+  box_telemetry_topic_ = this->get_parameter("box_telemetry_topic").as_string();
 
   // --- QoS Profiles ---
   rmw_qos_profile_t pose_qos_profile = rmw_qos_profile_default;
@@ -208,6 +214,16 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   sub_waypoints_ = this->create_subscription<mavros_msgs::msg::WaypointList>(
     "/mavros/mission/waypoints", state_qos,
     std::bind(&OffboardPreclandController::on_waypoints, this, std::placeholders::_1)
+  );
+
+  sub_box_telemetry_ = this->create_subscription<dib_msgs::msg::BoxTelemetry>(
+    box_telemetry_topic_, 10,
+    std::bind(&OffboardPreclandController::on_box_telemetry, this, std::placeholders::_1)
+  );
+
+  sub_gps_position_ = this->create_subscription<sensor_msgs::msg::NavSatFix>(
+    "/mavros/global_position/global", pose_qos,
+    std::bind(&OffboardPreclandController::on_gps_position, this, std::placeholders::_1)
   );
 
   // --- Service Clients ---
@@ -313,6 +329,25 @@ void OffboardPreclandController::on_waypoints(const mavros_msgs::msg::WaypointLi
   waypoints_ = msg->waypoints;
   current_wp_seq_ = msg->current_seq;
   RCLCPP_INFO(this->get_logger(), "Received waypoints update: %d items. Active seq: %d", (int)msg->waypoints.size(), msg->current_seq);
+}
+
+void OffboardPreclandController::on_box_telemetry(const dib_msgs::msg::BoxTelemetry::SharedPtr msg)
+{
+  box_lat_ = msg->box_info.latitude;
+  box_lon_ = msg->box_info.longitude;
+  box_yaw_ = msg->box_info.yaw;
+  box_telemetry_valid_ = true;
+  last_box_telemetry_time_ = now_sec();
+}
+
+void OffboardPreclandController::on_gps_position(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
+{
+  if (std::isnan(msg->latitude) || std::isnan(msg->longitude)) {
+    return;
+  }
+  drone_lat_ = msg->latitude;
+  drone_lon_ = msg->longitude;
+  gps_valid_ = true;
 }
 
 void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -737,6 +772,10 @@ bool OffboardPreclandController::can_transition(PrecLandState from, PrecLandStat
 
   switch (from) {
     case PrecLandState::IDLE:
+      return (to == PrecLandState::FLIGHT_IN_PROGRESS || to == PrecLandState::START);
+    case PrecLandState::FLIGHT_IN_PROGRESS:
+      return (to == PrecLandState::GOTO_BOX || to == PrecLandState::START);
+    case PrecLandState::GOTO_BOX:
       return (to == PrecLandState::START);
     case PrecLandState::START:
       return (to == PrecLandState::HORIZONTAL_APPROACH || to == PrecLandState::SEARCH);
@@ -753,7 +792,7 @@ bool OffboardPreclandController::can_transition(PrecLandState from, PrecLandStat
     case PrecLandState::FALLBACK:
       return false;
     case PrecLandState::DONE:
-      return (to == PrecLandState::IDLE);
+      return (to == PrecLandState::IDLE || to == PrecLandState::FLIGHT_IN_PROGRESS);
   }
   return false;
 }
@@ -878,6 +917,8 @@ void OffboardPreclandController::transition(PrecLandState new_state)
   auto to_string = [](PrecLandState s) {
     switch (s) {
       case PrecLandState::IDLE: return "IDLE";
+      case PrecLandState::FLIGHT_IN_PROGRESS: return "FLIGHT_IN_PROGRESS";
+      case PrecLandState::GOTO_BOX: return "GOTO_BOX";
       case PrecLandState::START: return "START";
       case PrecLandState::HORIZONTAL_APPROACH: return "HORIZONTAL_APPROACH";
       case PrecLandState::DESCEND_ABOVE_TARGET: return "DESCEND_ABOVE_TARGET";
@@ -900,7 +941,7 @@ void OffboardPreclandController::transition(PrecLandState new_state)
 
   RCLCPP_INFO(this->get_logger(), "FSM: %s → %s", to_string(old), to_string(new_state));
 
-  if (new_state == PrecLandState::IDLE || new_state == PrecLandState::START) {
+  if (new_state == PrecLandState::IDLE || new_state == PrecLandState::FLIGHT_IN_PROGRESS || new_state == PrecLandState::START) {
     yaw_locked_ = false;
     tag_yaw_abs_.reset();
     yaw_lock_buf_.clear();
@@ -940,7 +981,7 @@ void OffboardPreclandController::gimbal_tick()
     send_command(1001, 1.0f, 191.0f); // configure gimbal
     gimbal_configured_ = true;
   }
-  float pitch = (state_ != PrecLandState::IDLE && state_ != PrecLandState::DONE) ? -90.0f : 0.0f;
+  float pitch = (state_ != PrecLandState::IDLE && state_ != PrecLandState::FLIGHT_IN_PROGRESS && state_ != PrecLandState::DONE) ? -90.0f : 0.0f;
   send_command(1000, pitch, 0.0f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN(), 0.0f);
   send_command(205, pitch, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 2.0f);
 }
@@ -954,7 +995,8 @@ void OffboardPreclandController::control_loop()
     double dt_loop = now - last_loop_run_time_;
     if (dt_loop > 0.2) {
       RCLCPP_WARN(this->get_logger(), "Watchdog: Control loop delayed abnormally by %.3fs!", dt_loop);
-      if (state_ != PrecLandState::IDLE && state_ != PrecLandState::DONE && state_ != PrecLandState::FALLBACK) {
+      if (state_ != PrecLandState::IDLE && state_ != PrecLandState::FLIGHT_IN_PROGRESS &&
+          state_ != PrecLandState::DONE && state_ != PrecLandState::FALLBACK) {
         RCLCPP_ERROR(this->get_logger(), "Watchdog triggered: transitioning to FALLBACK");
         transition(PrecLandState::FALLBACK);
         last_loop_run_time_ = now;
@@ -1005,6 +1047,8 @@ void OffboardPreclandController::control_loop()
 
   switch (state_) {
     case PrecLandState::IDLE:                 st_idle(); break;
+    case PrecLandState::FLIGHT_IN_PROGRESS:   st_flight_in_progress(); break;
+    case PrecLandState::GOTO_BOX:              st_goto_box(); break;
     case PrecLandState::START:                st_start(); break;
     case PrecLandState::HORIZONTAL_APPROACH:   st_horizontal_approach(); break;
     case PrecLandState::DESCEND_ABOVE_TARGET:  st_descend_above_target(); break;
@@ -1037,7 +1081,8 @@ void OffboardPreclandController::control_loop()
 
   update_yaw();
 
-  if (state_ != PrecLandState::IDLE && state_ != PrecLandState::DONE &&
+  if (state_ != PrecLandState::IDLE && state_ != PrecLandState::FLIGHT_IN_PROGRESS &&
+      state_ != PrecLandState::DONE &&
       state_ != PrecLandState::FALLBACK && state_ != PrecLandState::FINAL_APPROACH) {
 
     geometry_msgs::msg::PoseStamped msg;
@@ -1075,6 +1120,8 @@ void OffboardPreclandController::control_loop()
     auto to_string = [](PrecLandState s) {
       switch (s) {
         case PrecLandState::IDLE: return "IDLE";
+        case PrecLandState::FLIGHT_IN_PROGRESS: return "FLIGHT_IN_PROGRESS";
+        case PrecLandState::GOTO_BOX: return "GOTO_BOX";
         case PrecLandState::START: return "START";
         case PrecLandState::HORIZONTAL_APPROACH: return "HORIZONTAL_APPROACH";
         case PrecLandState::DESCEND_ABOVE_TARGET: return "DESCEND_ABOVE_TARGET";
@@ -1096,16 +1143,23 @@ void OffboardPreclandController::control_loop()
 
 void OffboardPreclandController::st_idle()
 {
-  if (!(is_landing_ && armed_)) {
+  if (armed_ && (landed_state_ == mavros_msgs::msg::ExtendedState::LANDED_STATE_IN_AIR || pos_enu_.z > 1.0)) {
+    transition(PrecLandState::FLIGHT_IN_PROGRESS);
+  }
+}
+
+void OffboardPreclandController::st_flight_in_progress()
+{
+  if (!is_landing_) {
     return;
   }
 
+  // Detect precision land mode from waypoints if available
   int active_mode = land_mode_;
-
   for (size_t idx : {static_cast<size_t>(current_wp_seq_), static_cast<size_t>(current_wp_seq_ + 1)}) {
     if (idx < waypoints_.size()) {
       const auto & wp = waypoints_[idx];
-      if (wp.command == 21 || wp.command == 85) {
+      if (wp.command == 21 || wp.command == 85) { // LAND or opportunistic
         active_mode = static_cast<int>(wp.param2);
         RCLCPP_INFO(
           this->get_logger(),
@@ -1117,29 +1171,131 @@ void OffboardPreclandController::st_idle()
     }
   }
 
-  if (active_mode == 0) {
+  // Check if box telemetry is fresh and valid.
+  bool box_fresh = box_telemetry_valid_ && ((now_sec() - last_box_telemetry_time_) < 3.0);
+  if (box_fresh) {
+    RCLCPP_INFO(this->get_logger(), "Flight in progress: AUTO.LAND detected with fresh box telemetry. Transitioning to GOTO_BOX");
+    transition(PrecLandState::GOTO_BOX);
+  } else {
+    RCLCPP_INFO(this->get_logger(), "Flight in progress: AUTO.LAND detected without box telemetry. Transitioning to START (standard visual land)");
+    
+    // Initialize standard search variables
+    land_hold_pos_ = pos_enu_;
+    sp_enu_ = pos_enu_;
+    held_yaw_ = get_yaw(q_att_);
+    sp_yaw_ = held_yaw_;
+    tag_yaw_abs_.reset();
+    yaw_locked_ = false;
+    yaw_lock_buf_.clear();
+    start_z_sp_ = pos_enu_.z;
+    approach_alt_ = pos_enu_.z;
+    search_cnt_ = 0;
+    offboard_activated_ = false;
+    target_samples_.clear();
+    target_enu_.reset();
+    target_rel_norm_ = 9999.0;
+    tracking_count_ = 0;
+    
+    transition(PrecLandState::START);
+  }
+}
+
+void OffboardPreclandController::st_goto_box()
+{
+  if (!offboard_activated_) {
+    set_mode("OFFBOARD");
+    offboard_activated_ = true;
+    RCLCPP_INFO(this->get_logger(), "GOTO_BOX: Requested OFFBOARD mode");
     return;
   }
 
-  land_mode_ = active_mode;
+  if (current_mode_ != "OFFBOARD") {
+    // Wait for OFFBOARD mode to be active
+    return;
+  }
 
-  RCLCPP_INFO(this->get_logger(), "AUTO.LAND detected — taking over with OFFBOARD precision landing");
-  land_hold_pos_ = pos_enu_;
-  sp_enu_ = pos_enu_;
-  held_yaw_ = get_yaw(q_att_);
-  sp_yaw_ = held_yaw_;
-  tag_yaw_abs_.reset();
-  yaw_locked_ = false;
-  yaw_lock_buf_.clear();
-  start_z_sp_ = pos_enu_.z;
-  approach_alt_ = pos_enu_.z;
-  search_cnt_ = 0;
-  offboard_activated_ = false;
-  target_samples_.clear();
-  target_enu_.reset();
-  target_rel_norm_ = 9999.0;
-  tracking_count_ = 0;
-  transition(PrecLandState::START);
+  // Check telemetry timeout
+  double now = now_sec();
+  if ((now - last_box_telemetry_time_) > 5.0) {
+    RCLCPP_WARN(this->get_logger(), "GOTO_BOX: Box telemetry timeout (>5s). Falling back to START.");
+    
+    // Initialize standard search
+    land_hold_pos_ = pos_enu_;
+    sp_enu_ = pos_enu_;
+    held_yaw_ = get_yaw(q_att_);
+    sp_yaw_ = held_yaw_;
+    tag_yaw_abs_.reset();
+    yaw_locked_ = false;
+    yaw_lock_buf_.clear();
+    start_z_sp_ = pos_enu_.z;
+    approach_alt_ = pos_enu_.z;
+    search_cnt_ = 0;
+    target_samples_.clear();
+    target_enu_.reset();
+    target_rel_norm_ = 9999.0;
+    tracking_count_ = 0;
+
+    transition(PrecLandState::START);
+    return;
+  }
+
+  // Calculate box ENU coordinates from GPS offset
+  if (gps_valid_ && box_telemetry_valid_) {
+    double dlat = box_lat_ - drone_lat_;
+    double dlon = box_lon_ - drone_lon_;
+    double R = 6378137.0;
+    double dx = dlon * (M_PI / 180.0) * R * std::cos(drone_lat_ * (M_PI / 180.0));
+    double dy = dlat * (M_PI / 180.0) * R;
+
+    double box_east = pos_enu_.x + dx;
+    double box_north = pos_enu_.y + dy;
+
+    sp_enu_ = Vector3{box_east, box_north, goto_box_alt_};
+    sp_yaw_ = box_yaw_;
+
+    double dist = std::hypot(pos_enu_.x - box_east, pos_enu_.y - box_north);
+
+    static double last_log = 0.0;
+    if (now - last_log >= 1.0) {
+      last_log = now;
+      RCLCPP_INFO(this->get_logger(), "GOTO_BOX: box_gps=(%.8f, %.8f), drone_gps=(%.8f, %.8f), dx=%.2f, dy=%.2f, dist_to_box=%.2fm",
+                  box_lat_, box_lon_, drone_lat_, drone_lon_, dx, dy, dist);
+    }
+
+    if (dist <= goto_box_arrival_radius_) {
+      RCLCPP_INFO(this->get_logger(), "GOTO_BOX: Arrived at box (dist=%.2fm <= radius=%.2fm). Transitioning to START",
+                  dist, goto_box_arrival_radius_);
+      
+      // Initialize standard search
+      land_hold_pos_ = pos_enu_;
+      sp_enu_ = pos_enu_;
+      held_yaw_ = get_yaw(q_att_);
+      sp_yaw_ = held_yaw_;
+      tag_yaw_abs_.reset();
+      yaw_locked_ = false;
+      yaw_lock_buf_.clear();
+      start_z_sp_ = pos_enu_.z;
+      approach_alt_ = pos_enu_.z;
+      search_cnt_ = 0;
+      target_samples_.clear();
+      target_enu_.reset();
+      target_rel_norm_ = 9999.0;
+      tracking_count_ = 0;
+
+      transition(PrecLandState::START);
+    }
+  } else {
+    // If GPS position is not valid yet, hold current position
+    sp_enu_ = pos_enu_;
+    sp_enu_.z = goto_box_alt_;
+    
+    static double last_log = 0.0;
+    if (now - last_log >= 2.0) {
+      last_log = now;
+      RCLCPP_WARN(this->get_logger(), "GOTO_BOX: Waiting for GPS (gps_valid=%d, box_telemetry_valid=%d)",
+                  (int)gps_valid_, (int)box_telemetry_valid_);
+    }
+  }
 }
 
 void OffboardPreclandController::st_start()

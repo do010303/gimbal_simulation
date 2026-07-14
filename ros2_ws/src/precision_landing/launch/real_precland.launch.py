@@ -48,13 +48,13 @@ def generate_launch_description():
 
     rtsp_url_arg = DeclareLaunchArgument(
         'rtsp_url',
-        default_value='rtsp://192.168.168.14:8554/main.264',
+        default_value='rtsp://192.168.168.16:8554/main.264',
         description='RTSP stream URL of SIYI A8 Mini camera'
     )
 
     flip_180_arg = DeclareLaunchArgument(
         'flip_180',
-        default_value='true',
+        default_value='false',
         description='Flip image 180 degrees (camera mounted upside-down)'
     )
 
@@ -88,25 +88,25 @@ def generate_launch_description():
 
     camera_fx_arg = DeclareLaunchArgument(
         'camera_fx',
-        default_value='735.788640',
+        default_value='733.95577',
         description='Calibrated camera focal length fx'
     )
 
     camera_fy_arg = DeclareLaunchArgument(
         'camera_fy',
-        default_value='733.752679',
+        default_value='735.28401',
         description='Calibrated camera focal length fy'
     )
 
     camera_cx_arg = DeclareLaunchArgument(
         'camera_cx',
-        default_value='657.226337',
+        default_value='654.37518',
         description='Calibrated camera principal point cx'
     )
 
     camera_cy_arg = DeclareLaunchArgument(
         'camera_cy',
-        default_value='350.211265',
+        default_value='352.23005',
         description='Calibrated camera principal point cy'
     )
 

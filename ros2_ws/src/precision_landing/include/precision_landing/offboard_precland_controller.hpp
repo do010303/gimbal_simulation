@@ -25,6 +25,8 @@
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <dib_msgs/msg/box_telemetry.hpp>
 
 namespace precision_landing
 {
@@ -32,6 +34,8 @@ namespace precision_landing
 enum class PrecLandState
 {
   IDLE,
+  FLIGHT_IN_PROGRESS,
+  GOTO_BOX,
   START,
   HORIZONTAL_APPROACH,
   DESCEND_ABOVE_TARGET,
@@ -70,6 +74,8 @@ private:
   void on_ext_state(const mavros_msgs::msg::ExtendedState::SharedPtr msg);
   void on_waypoints(const mavros_msgs::msg::WaypointList::SharedPtr msg);
   void on_target(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void on_box_telemetry(const dib_msgs::msg::BoxTelemetry::SharedPtr msg);
+  void on_gps_position(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
 
   // --- Main Loop and FSM Tick ---
   void control_loop();
@@ -78,6 +84,8 @@ private:
 
   // --- FSM State Handlers ---
   void st_idle();
+  void st_flight_in_progress();
+  void st_goto_box();
   void st_start();
   void st_horizontal_approach();
   void st_descend_above_target();
@@ -141,6 +149,9 @@ private:
   int yaw_lock_samples_;
   double yaw_lock_alt_;
   double yaw_lock_alt_2_;
+  double goto_box_alt_;
+  double goto_box_arrival_radius_;
+  std::string box_telemetry_topic_;
 
   // Tunable Controller Constants
   int ctrl_hz_;
@@ -214,6 +225,16 @@ private:
   double final_approach_start_{0.0};
   double yaw_lock_stage_start_{0.0};
   double last_loop_run_time_{0.0};
+  
+  // Box and Home variables
+  double box_lat_{0.0};
+  double box_lon_{0.0};
+  double box_yaw_{0.0};
+  double drone_lat_{0.0};
+  double drone_lon_{0.0};
+  bool gps_valid_{false};
+  bool box_telemetry_valid_{false};
+  double last_box_telemetry_time_{0.0};
   double final_x_{0.0};
   double final_y_{0.0};
   Vector3 sp_prev_{0.0, 0.0, 0.0};
@@ -279,6 +300,8 @@ private:
   rclcpp::Subscription<mavros_msgs::msg::State>::SharedPtr sub_state_;
   rclcpp::Subscription<mavros_msgs::msg::ExtendedState>::SharedPtr sub_ext_state_;
   rclcpp::Subscription<mavros_msgs::msg::WaypointList>::SharedPtr sub_waypoints_;
+  rclcpp::Subscription<dib_msgs::msg::BoxTelemetry>::SharedPtr sub_box_telemetry_;
+  rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr sub_gps_position_;
 
   // --- Service Clients ---
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;

@@ -795,7 +795,7 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   const int thickness = 1;
   const int margin = 10;
   const int line_height = 22;
-  const int panel_height = 4 * line_height + 12;
+  const int panel_height = 5 * line_height + 12;
   const int panel_top = std::max(0, image.rows - panel_height - margin);
   const int panel_right = std::min(image.cols - margin, 520);
 
@@ -805,6 +805,27 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   cv::rectangle(
     image, cv::Point(margin, panel_top), cv::Point(panel_right, image.rows - margin),
     cv::Scalar(0, 220, 220), 1);
+
+  std::string e2e_text = "E2E latency: N/A (clock mismatch)";
+  double transport_queue_ms = 0.0;
+  if (source_latency_valid_)
+  {
+    e2e_text = cv::format("E2E latency (image -> debug): %.1f ms", last_source_latency_ms_);
+    if (last_source_latency_ms_ > latency_warn_ms_)
+    {
+      e2e_text += "  [WARN]";
+    }
+    transport_queue_ms = std::max(0.0, last_source_latency_ms_ - last_processing_latency_ms_);
+  }
+  const cv::Scalar e2e_color = !source_latency_valid_
+    ? cv::Scalar(0, 200, 255)
+    : (last_source_latency_ms_ <= latency_warn_ms_
+        ? cv::Scalar(80, 255, 80)
+        : cv::Scalar(0, 80, 255));
+  cv::putText(
+    image, e2e_text,
+    cv::Point(margin + 8, panel_top + line_height),
+    font_face, font_scale, e2e_color, thickness, cv::LINE_AA);
 
   std::string processing_text = cv::format("Detector processing: %.1f ms", last_processing_latency_ms_);
   if (last_processing_latency_ms_ > latency_warn_ms_)
@@ -817,14 +838,14 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
     : cv::Scalar(0, 80, 255);
   cv::putText(
     image, processing_text,
-    cv::Point(margin + 8, panel_top + line_height),
+    cv::Point(margin + 8, panel_top + 2 * line_height),
     font_face, font_scale, processing_color, thickness, cv::LINE_AA);
 
-  std::string source_text = "Camera -> tracker: N/A (clock mismatch)";
+  std::string source_text = "Transport/queue: N/A";
   if (source_latency_valid_)
   {
-    source_text = cv::format("Camera -> tracker: %.1f ms", last_source_latency_ms_);
-    if (last_source_latency_ms_ > latency_warn_ms_)
+    source_text = cv::format("Transport/queue: %.1f ms", transport_queue_ms);
+    if (transport_queue_ms > latency_warn_ms_)
     {
       source_text += "  [WARN]";
     }
@@ -835,13 +856,13 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
         ? cv::Scalar(80, 255, 80)
         : cv::Scalar(0, 80, 255));
   cv::putText(
-    image, source_text, cv::Point(margin + 8, panel_top + 2 * line_height),
+    image, source_text, cv::Point(margin + 8, panel_top + 3 * line_height),
     font_face, font_scale, source_color, thickness, cv::LINE_AA);
 
   std::string info_text = cv::format("FPS: %.1f Hz | CPU: %.1f%% (Sys) | %.1f%% (Node)",
     current_fps_, system_cpu_usage_, process_cpu_usage_);
   cv::putText(
-    image, info_text, cv::Point(margin + 8, panel_top + 3 * line_height),
+    image, info_text, cv::Point(margin + 8, panel_top + 4 * line_height),
     font_face, font_scale, cv::Scalar(255, 255, 255), thickness, cv::LINE_AA);
 
   std::string dist_ids_text;
@@ -857,7 +878,7 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
     dist_ids_color = cv::Scalar(150, 150, 150);
   }
   cv::putText(
-    image, dist_ids_text, cv::Point(margin + 8, panel_top + 4 * line_height),
+    image, dist_ids_text, cv::Point(margin + 8, panel_top + 5 * line_height),
     font_face, font_scale, dist_ids_color, thickness, cv::LINE_AA);
 }
 

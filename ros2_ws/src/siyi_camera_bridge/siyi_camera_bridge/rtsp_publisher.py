@@ -28,9 +28,9 @@ class RtspPublisher(Node):
 
         # ── Parameters ──────────────────────────────────────────────
         self.declare_parameter('rtsp_url',
-                               'rtsp://192.168.168.14:8554/main.264')
+                               'rtsp://192.168.168.16:8554/main.264')
         self.declare_parameter('frame_id', 'siyi_camera_optical_frame')
-        self.declare_parameter('flip_180', True)
+        self.declare_parameter('flip_180', False)
         self.declare_parameter('target_fps', 30.0)
         self.declare_parameter('image_width', 1280)
         self.declare_parameter('image_height', 720)

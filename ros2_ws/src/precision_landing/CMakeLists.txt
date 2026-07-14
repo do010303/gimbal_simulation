@@ -98,7 +98,15 @@ rclcpp_components_register_nodes(offboard_precland_controller_node "precision_la
 add_executable(offboard_precland_controller src/offboard_precland_controller_main.cpp)
 target_link_libraries(offboard_precland_controller offboard_precland_controller_node)
 
-# ── 4. Install Targets ────────────────────────────────────────────────
+# ── 4. Install Python Tools ───────────────────────────────────────────
+install(
+  PROGRAMS
+    scripts/fractal_tracking_csv_logger.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME fractal_tracking_csv_logger
+)
+
+# ── 5. Install Targets ────────────────────────────────────────────────
 install(
   DIRECTORY include/${PROJECT_NAME}
   DESTINATION include
@@ -123,7 +131,7 @@ install(
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
-# ── 5. Install Config & Launch Files ──────────────────────────────────
+# ── 6. Install Config & Launch Files ──────────────────────────────────
 install(
   DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
