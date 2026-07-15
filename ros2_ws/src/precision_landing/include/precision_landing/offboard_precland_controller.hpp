@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/msg/extended_state.hpp>
 #include <mavros_msgs/msg/waypoint_list.hpp>
@@ -103,6 +104,7 @@ private:
   void pull_waypoints_immediately();
   void transition(PrecLandState new_state);
   bool can_transition(PrecLandState from, PrecLandState to);
+  void set_glare_comp(bool active);
 
   // --- Math and Frame Helpers ---
   std::tuple<Vector3, Quaternion> get_historical_state(double time);
@@ -249,6 +251,7 @@ private:
   double disarm_attempt_time_{0.0};  // last time disarm was sent (for retry)
   double disarm_attempt_time_first_{0.0};  // thời điểm gửi disarm LẦN ĐẦU (không đổi khi retry)
   bool auto_land_fallback_sent_{false};
+  bool glare_comp_active_{false};
 
   // --- Altitude stall detection (ground contact without relying on landed_state) ---
   double final_approach_entry_z_{0.0};  // altitude when FINAL_APPROACH was entered
@@ -286,6 +289,7 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_sp_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr pub_sp_raw_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_state_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_glare_comp_;
 
   // --- TF2 ---
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

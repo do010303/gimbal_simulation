@@ -98,6 +98,21 @@ rclcpp_components_register_nodes(offboard_precland_controller_node "precision_la
 add_executable(offboard_precland_controller src/offboard_precland_controller_main.cpp)
 target_link_libraries(offboard_precland_controller offboard_precland_controller_node)
 
+# ── 4. AE Analyzer Executable ──────────────────────────────────────────
+add_executable(ae_analyzer src/ae_analyzer.cpp)
+target_link_libraries(ae_analyzer "${ARUCO_LIBRARY}") # Link ArUco library if needed
+ament_target_dependencies(ae_analyzer
+  rclcpp
+  sensor_msgs
+  cv_bridge
+  OpenCV
+)
+install(
+  TARGETS
+    ae_analyzer
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 # ── 4. Install Python Tools ───────────────────────────────────────────
 install(
   PROGRAMS

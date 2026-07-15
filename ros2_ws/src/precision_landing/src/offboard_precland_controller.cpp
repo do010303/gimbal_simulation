@@ -183,6 +183,7 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   pub_sp_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/mavros/setpoint_position/local", 10);
   pub_sp_raw_ = this->create_publisher<mavros_msgs::msg::PositionTarget>("/mavros/setpoint_raw/local", 10);
   pub_state_ = this->create_publisher<std_msgs::msg::String>("/lander/state", 10);
+  pub_glare_comp_ = this->create_publisher<std_msgs::msg::Bool>("/tracker/glare_compensation", 10);
 
   // --- TF2 Initialize ---
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -941,6 +942,15 @@ void OffboardPreclandController::transition(PrecLandState new_state)
 
   RCLCPP_INFO(this->get_logger(), "FSM: %s → %s", to_string(old), to_string(new_state));
 
+  if (new_state == PrecLandState::IDLE || new_state == PrecLandState::DONE ||
+      new_state == PrecLandState::FALLBACK) {
+    set_glare_comp(false);
+  }
+
+  if (new_state == PrecLandState::SEARCH) {
+    search_cnt_ = 0;
+  }
+
   if (new_state == PrecLandState::IDLE || new_state == PrecLandState::FLIGHT_IN_PROGRESS || new_state == PrecLandState::START) {
     yaw_locked_ = false;
     tag_yaw_abs_.reset();
@@ -1613,7 +1623,6 @@ void OffboardPreclandController::st_search()
   }
 
   sp_enu_ = Vector3{anchor.x, anchor.y, s_alt};
-  search_cnt_++;
 
   if (is_target_fresh() && tracking_count_ >= tracking_confirm_) {
     approach_alt_ = pos_enu_.z;
@@ -1625,10 +1634,16 @@ void OffboardPreclandController::st_search()
   }
 
   if (search_start_.has_value() && (now_sec() - search_start_.value()) > search_timeout_) {
-    RCLCPP_WARN(this->get_logger(), "Search timeout");
+    search_cnt_++;
+    RCLCPP_WARN(this->get_logger(), "Search timeout (retry %d/%d)", search_cnt_, max_search_);
     if (search_cnt_ >= max_search_) {
+      set_glare_comp(false);  // cleanup
       transition(PrecLandState::FALLBACK);
     } else {
+      if (!glare_comp_active_) {
+        set_glare_comp(true);
+        RCLCPP_WARN(this->get_logger(), "SEARCH: Activating GLARE COMPENSATION after timeout");
+      }
       search_start_ = now_sec();
     }
   }
@@ -1672,6 +1687,14 @@ void OffboardPreclandController::st_fallback()
   RCLCPP_WARN(this->get_logger(), "Fallback → reverting to AUTO.LAND (GPS landing)");
   set_mode("AUTO.LAND");
   transition(PrecLandState::DONE);
+}
+
+void OffboardPreclandController::set_glare_comp(bool active)
+{
+  glare_comp_active_ = active;
+  std_msgs::msg::Bool msg;
+  msg.data = active;
+  pub_glare_comp_->publish(msg);
 }
 
 void OffboardPreclandController::st_done()

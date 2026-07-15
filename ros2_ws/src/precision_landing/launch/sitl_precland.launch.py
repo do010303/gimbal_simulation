@@ -75,7 +75,10 @@ def generate_launch_description():
             'camera_x_to_body_east_sign': 1.0,
             'camera_y_to_body_north_sign': -1.0,
             'camera_offset_x': LaunchConfiguration('camera_offset_x'),
-            'camera_offset_y': LaunchConfiguration('camera_offset_y')
+            'camera_offset_y': LaunchConfiguration('camera_offset_y'),
+            'glare_gamma': 0.4,
+            'clahe_clip_limit': 3,
+            'clahe_tile_size': 8
         }],
         remappings=[
             ('image_input_topic', '/gimbal_camera'),

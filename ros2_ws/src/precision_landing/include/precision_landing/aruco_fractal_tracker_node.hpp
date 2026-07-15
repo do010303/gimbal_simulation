@@ -23,6 +23,7 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <dib_msgs/msg/landing_target6_d.hpp>
 #include <dib_msgs/msg/box_telemetry.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -32,6 +33,7 @@
 #include <aruco/fractaldetector.h>
 #include <chrono>
 #include <memory>
+#include <opencv2/opencv.hpp>
 
 namespace fractal_tracker
 {
@@ -48,6 +50,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr uav_pose_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr lander_state_sub_;
   rclcpp::Subscription<dib_msgs::msg::BoxTelemetry>::SharedPtr box_telemetry_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr glare_comp_sub_;
 
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr marker_pose_pub_;
@@ -101,9 +104,18 @@ private:
   double last_marker_distance_{0.0};
   bool last_marker_distance_valid_{false};
 
+  // Glare compensation parameters & state
+  bool enable_glare_compensation_{false};
+  double glare_gamma_{0.4};
+  int clahe_clip_limit_{3};
+  int clahe_tile_size_{8};
+  bool glare_active_{false};
+  cv::Ptr<cv::CLAHE> clahe_;
+
   bool getSystemCPUStats(long &idle, long &total) const;
   bool getProcessCPUStats(long &proc_ticks) const;
   void drawTransparentRect(cv::Mat& image, const cv::Rect& rect, const cv::Scalar& color, double alpha) const;
+  cv::Mat preprocessForGlare(const cv::Mat& gray);
 
   void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
   void cameraInfoCallback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);

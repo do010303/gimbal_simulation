@@ -67,6 +67,17 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
   camera_offset_y_ = this->get_parameter("camera_offset_y").as_double();
   const auto box_telemetry_topic = this->get_parameter("box_telemetry_topic").as_string();
 
+  // Glare compensation parameters
+  this->declare_parameter<double>("glare_gamma", 0.4);
+  this->declare_parameter<int>("clahe_clip_limit", 3);
+  this->declare_parameter<int>("clahe_tile_size", 8);
+
+  glare_gamma_ = this->get_parameter("glare_gamma").as_double();
+  clahe_clip_limit_ = this->get_parameter("clahe_clip_limit").as_int();
+  clahe_tile_size_ = this->get_parameter("clahe_tile_size").as_int();
+
+  clahe_ = cv::createCLAHE(clahe_clip_limit_, cv::Size(clahe_tile_size_, clahe_tile_size_));
+
   detector_.setConfiguration(marker_configuration);
 
   // Set default/fallback camera parameters (width: 1280, height: 720, HFOV: 1.4137 rad / 81 degrees)
@@ -83,6 +94,17 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
 
   camera_info_sub_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
     "camera_info_topic", 10, std::bind(&ArucoFractalTracker::cameraInfoCallback, this, std::placeholders::_1));
+
+  glare_comp_sub_ = this->create_subscription<std_msgs::msg::Bool>(
+    "/tracker/glare_compensation", 10,
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {
+      enable_glare_compensation_ = msg->data;
+      if (msg->data) {
+        RCLCPP_WARN(this->get_logger(), "GLARE COMPENSATION: ACTIVATED by controller");
+      } else {
+        RCLCPP_INFO(this->get_logger(), "GLARE COMPENSATION: DEACTIVATED");
+      }
+    });
 
   image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "image_input_topic", 10, std::bind(&ArucoFractalTracker::imageCallback, this, std::placeholders::_1));
@@ -274,7 +296,22 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
 
   cv::cvtColor(cv_ptr->image, gray, cv::COLOR_BGR2GRAY);
 
-  if (detector_.detect(gray))
+  // Log mean brightness for tuning (once per second/FPS cycle)
+  double mean_brightness = cv::mean(gray)[0];
+  if (frame_count_ % static_cast<size_t>(std::max(1.0, current_fps_)) == 0) {
+    RCLCPP_INFO(this->get_logger(), "Image mean brightness: %.1f | Glare comp: %s",
+      mean_brightness, enable_glare_compensation_ ? "ACTIVE" : "OFF");
+  }
+
+  cv::Mat detection_input = gray;
+  if (enable_glare_compensation_) {
+    detection_input = preprocessForGlare(gray);
+    glare_active_ = true;
+  } else {
+    glare_active_ = false;
+  }
+
+  if (detector_.detect(detection_input))
   {
     detector_.drawMarkers(cv_ptr->image);
 
@@ -788,6 +825,25 @@ void ArucoFractalTracker::drawTransparentRect(cv::Mat& image, const cv::Rect& re
   cv::addWeighted(color_rect, alpha, roi, 1.0 - alpha, 0.0, roi);
 }
 
+cv::Mat ArucoFractalTracker::preprocessForGlare(const cv::Mat& gray)
+{
+  // Step 1: Gamma correction (γ=0.4 → exponent=2.5 → darkens bright areas)
+  cv::Mat lut(1, 256, CV_8UC1);
+  double inv_gamma = 1.0 / glare_gamma_;
+  for (int i = 0; i < 256; ++i) {
+    lut.at<uchar>(0, i) = cv::saturate_cast<uchar>(
+      255.0 * std::pow(i / 255.0, inv_gamma));
+  }
+  cv::Mat gamma_corrected;
+  cv::LUT(gray, lut, gamma_corrected);
+
+  // Step 2: CLAHE — adaptive local histogram equalization
+  cv::Mat result;
+  clahe_->apply(gamma_corrected, result);
+
+  return result;
+}
+
 void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
 {
   const int font_face = cv::FONT_HERSHEY_SIMPLEX;
@@ -795,7 +851,7 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   const int thickness = 1;
   const int margin = 10;
   const int line_height = 22;
-  const int panel_height = 5 * line_height + 12;
+  const int panel_height = 6 * line_height + 12;
   const int panel_top = std::max(0, image.rows - panel_height - margin);
   const int panel_right = std::min(image.cols - margin, 520);
 
@@ -880,6 +936,12 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   cv::putText(
     image, dist_ids_text, cv::Point(margin + 8, panel_top + 5 * line_height),
     font_face, font_scale, dist_ids_color, thickness, cv::LINE_AA);
+
+  std::string glare_text = glare_active_ ? "GLARE COMP: ACTIVE" : "GLARE COMP: OFF";
+  cv::Scalar glare_color = glare_active_ ? cv::Scalar(0, 255, 255) : cv::Scalar(80, 255, 80);
+  cv::putText(
+    image, glare_text, cv::Point(margin + 8, panel_top + 6 * line_height),
+    font_face, font_scale, glare_color, thickness, cv::LINE_AA);
 }
 
 } // namespace fractal_tracker
