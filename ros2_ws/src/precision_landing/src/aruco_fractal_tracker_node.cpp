@@ -304,12 +304,8 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
   }
 
   cv::Mat detection_input = gray;
-  if (enable_glare_compensation_) {
-    detection_input = preprocessForGlare(gray);
-    glare_active_ = true;
-  } else {
-    glare_active_ = false;
-  }
+  // Glare compensation temporarily disabled to match remote
+  glare_active_ = false;
 
   if (detector_.detect(detection_input))
   {
