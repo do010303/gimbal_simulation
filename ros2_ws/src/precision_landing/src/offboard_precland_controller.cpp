@@ -77,6 +77,7 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   this->declare_parameter<double>("search_alt_max");
   this->declare_parameter<double>("final_approach_timeout");
   this->declare_parameter<double>("final_descent_rate");
+  this->declare_parameter<double>("final_align_step");
   this->declare_parameter<double>("sp_vel_max");
   this->declare_parameter<double>("sp_accel_max");
   this->declare_parameter<double>("yaw_lock_timeout");
@@ -155,6 +156,7 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   search_alt_max_ = this->get_parameter("search_alt_max").as_double();
   final_approach_timeout_ = this->get_parameter("final_approach_timeout").as_double();
   final_descent_rate_ = this->get_parameter("final_descent_rate").as_double();
+  final_align_step_ = this->get_parameter("final_align_step").as_double();
   sp_vel_max_ = this->get_parameter("sp_vel_max").as_double();
   sp_accel_max_ = this->get_parameter("sp_accel_max").as_double();
   yaw_lock_timeout_ = this->get_parameter("yaw_lock_timeout").as_double();
@@ -361,6 +363,7 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
   double world_yaw_sample = 0.0;
   double abs_x = 0.0;
   double abs_y = 0.0;
+  double raw_pad_z = 0.0;
   Quaternion h_q{1.0, 0.0, 0.0, 0.0};
 
   try {
@@ -369,6 +372,8 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
     msg_map = tf_buffer_->transform(msg_zero_time, "map", tf2::durationFromSec(0.05));
     abs_x = msg_map.pose.position.x;
     abs_y = msg_map.pose.position.y;
+
+    raw_pad_z = msg_map.pose.position.z;
 
     Quaternion q_tag_world{
       msg_map.pose.orientation.w,
@@ -383,6 +388,7 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
 
     double tvec_x = msg->pose.position.x;
     double tvec_y = msg->pose.position.y;
+    double tvec_z = msg->pose.position.z;
     double cam_x = camera_x_to_body_east_sign_ * tvec_x;
     double cam_y = camera_y_to_body_north_sign_ * tvec_y;
 
@@ -393,6 +399,8 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
 
     abs_x = h_pos.x + rel.x;
     abs_y = h_pos.y + rel.y;
+
+    raw_pad_z = h_pos.z - tvec_z;
 
     Quaternion q_tag_cam{
       msg->pose.orientation.w,
@@ -415,13 +423,19 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
     return;
   }
 
+  // Sample is valid, update virtual pad altitude with rate limit
+  double max_pad_z_step = 0.02; // m/tick — giới hạn trôi tối đa
+  double pad_z_target = ema_alpha_pad_ * raw_pad_z + (1.0 - ema_alpha_pad_) * virtual_pad_z_;
+  double d = pad_z_target - virtual_pad_z_;
+  virtual_pad_z_ += std::clamp(d, -max_pad_z_step, max_pad_z_step);
+
   target_enu_ = {abs_x, abs_y};
   target_rel_norm_ = rn;
   last_pose_time_ = now_sec();
 
   if (align_yaw_to_tag_) {
     double target_lock_alt = (yaw_lock_stage_ <= 1) ? yaw_lock_alt_ : yaw_lock_alt_2_;
-    if (state_ == PrecLandState::DESCEND_ABOVE_TARGET && !yaw_locked_ && pos_enu_.z <= target_lock_alt) {
+    if (state_ == PrecLandState::DESCEND_ABOVE_TARGET && !yaw_locked_ && get_alt() <= target_lock_alt) {
       yaw_lock_buf_.push_back(world_yaw_sample);
       if (static_cast<int>(yaw_lock_buf_.size()) >= yaw_lock_samples_) {
         if (!yaw_lock_buf_.empty()) {
@@ -430,7 +444,7 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
           RCLCPP_INFO(
             this->get_logger(),
             "[YAW-LOCK] latched target=%.1f deg from %d samples at %.1fm",
-            tag_yaw_abs_.value() * 180.0 / M_PI, (int)yaw_lock_buf_.size(), pos_enu_.z
+            tag_yaw_abs_.value() * 180.0 / M_PI, (int)yaw_lock_buf_.size(), get_alt()
           );
         }
       }
@@ -525,7 +539,7 @@ void OffboardPreclandController::send_command(uint16_t command, float p1, float 
 void OffboardPreclandController::disarm()
 {
   RCLCPP_INFO(this->get_logger(), "Sending force-disarm (MAV_CMD 400, magic=21196)");
-  
+
   if (cmd_client_->service_is_ready()) {
     auto req = std::make_shared<mavros_msgs::srv::CommandLong::Request>();
     req->command = 400;
@@ -751,7 +765,7 @@ Vector3 OffboardPreclandController::calculate_visual_setpoint(double z_sp, doubl
 
 double OffboardPreclandController::current_descent_rate()
 {
-  double z = pos_enu_.z;
+  double z = get_alt();
   if (z > mpc_land_alt1_) {
     return mpc_z_vel_max_dn_;
   } else if (z > mpc_land_alt2_) {
@@ -864,7 +878,7 @@ void OffboardPreclandController::publish_static_transform(const std::string & ca
 
 double OffboardPreclandController::get_alt()
 {
-  return std::max(0.0, pos_enu_.z);
+  return std::max(0.0, pos_enu_.z - virtual_pad_z_);
 }
 
 double OffboardPreclandController::get_blend()
@@ -968,11 +982,19 @@ void OffboardPreclandController::transition(PrecLandState new_state)
     sp_prev_vel_ = Vector3{0.0, 0.0, 0.0};
     disarm_requested_ = false;
     auto_land_fallback_sent_ = false;
+    virtual_pad_z_ = 0.0;
   }
 
   if (new_state == PrecLandState::FINAL_APPROACH) {
-    final_x_ = pos_enu_.x;
-    final_y_ = pos_enu_.y;
+    auto target_val = target_enu_filtered_.has_value() ? target_enu_filtered_ : target_enu_;
+    if (target_val.has_value()) {
+      final_x_ = std::get<0>(target_val.value());
+      final_y_ = std::get<1>(target_val.value());
+    } else {
+      // Fallback: if no target detected, keep current position
+      final_x_ = pos_enu_.x;
+      final_y_ = pos_enu_.y;
+    }
     final_approach_start_ = now_sec();
     final_approach_entry_z_ = pos_enu_.z;  // record entry altitude for descent comparison
     sp_prev_ = pos_enu_;
@@ -1023,14 +1045,14 @@ void OffboardPreclandController::control_loop()
       transition(PrecLandState::DONE);
       return;
     }
-    
+
     if (disarm_requested_ && armed_) {
       if ((now - disarm_attempt_time_) >= 0.2) {
         RCLCPP_WARN(this->get_logger(), "Retrying force-disarm (%.1fs since first attempt)",
                     now - disarm_attempt_time_first_);
         disarm();
       }
-      
+
       double since_first = now - disarm_attempt_time_first_;
       if (since_first > 2.0 && !auto_land_fallback_sent_) {
         RCLCPP_ERROR(this->get_logger(),
@@ -1092,37 +1114,21 @@ void OffboardPreclandController::control_loop()
   update_yaw();
 
   if (state_ != PrecLandState::IDLE && state_ != PrecLandState::FLIGHT_IN_PROGRESS &&
-      state_ != PrecLandState::DONE &&
-      state_ != PrecLandState::FALLBACK && state_ != PrecLandState::FINAL_APPROACH) {
+      state_ != PrecLandState::DONE && state_ != PrecLandState::FALLBACK) {
 
-    geometry_msgs::msg::PoseStamped msg;
-    msg.header.stamp = this->get_clock()->now();
-    msg.header.frame_id = "map";
-    msg.pose.position.x = sp_enu_.x;
-    msg.pose.position.y = sp_enu_.y;
-    msg.pose.position.z = sp_enu_.z;
-    msg.pose.orientation.z = std::sin(sp_yaw_ / 2.0);
-    msg.pose.orientation.w = std::cos(sp_yaw_ / 2.0);
-    pub_sp_->publish(msg);
-  } else if (state_ == PrecLandState::FINAL_APPROACH && !disarm_requested_) {
     // Stop publishing setpoint the moment disarm is requested
     // to avoid OFFBOARD heartbeat keeping motors alive after touch-down
-    mavros_msgs::msg::PositionTarget msg;
-    msg.header.stamp = this->get_clock()->now();
-    msg.header.frame_id = "map";
-    msg.coordinate_frame = mavros_msgs::msg::PositionTarget::FRAME_LOCAL_NED;
-    msg.position.x = final_x_;
-    msg.position.y = final_y_;
-    msg.velocity.z = -final_descent_rate_;
-    msg.yaw = sp_yaw_;
-    msg.type_mask = mavros_msgs::msg::PositionTarget::IGNORE_PZ |
-                    mavros_msgs::msg::PositionTarget::IGNORE_VX |
-                    mavros_msgs::msg::PositionTarget::IGNORE_VY |
-                    mavros_msgs::msg::PositionTarget::IGNORE_AFX |
-                    mavros_msgs::msg::PositionTarget::IGNORE_AFY |
-                    mavros_msgs::msg::PositionTarget::IGNORE_AFZ |
-                    mavros_msgs::msg::PositionTarget::IGNORE_YAW_RATE;
-    pub_sp_raw_->publish(msg);
+    if (!(state_ == PrecLandState::FINAL_APPROACH && disarm_requested_)) {
+      geometry_msgs::msg::PoseStamped msg;
+      msg.header.stamp = this->get_clock()->now();
+      msg.header.frame_id = "map";
+      msg.pose.position.x = sp_enu_.x;
+      msg.pose.position.y = sp_enu_.y;
+      msg.pose.position.z = sp_enu_.z;
+      msg.pose.orientation.z = std::sin(sp_yaw_ / 2.0);
+      msg.pose.orientation.w = std::cos(sp_yaw_ / 2.0);
+      pub_sp_->publish(msg);
+    }
   }
 
   try {
@@ -1311,7 +1317,7 @@ void OffboardPreclandController::st_goto_box()
 void OffboardPreclandController::st_start()
 {
   Vector3 hold = land_hold_pos_.has_value() ? land_hold_pos_.value() : pos_enu_;
-  double target_z = std::min(hold.z, search_alt_);
+  double target_z = std::min(hold.z, virtual_pad_z_ + search_alt_);
   start_z_sp_ = std::max(target_z, start_z_sp_ - current_descent_rate() / ctrl_hz_);
   sp_enu_ = Vector3{hold.x, hold.y, start_z_sp_};
 
@@ -1340,7 +1346,7 @@ void OffboardPreclandController::st_start()
     return;
   }
 
-  if (pos_enu_.z <= search_alt_ + 0.3) {
+  if (get_alt() <= search_alt_ + 0.3) {
     if (!search_start_.has_value()) {
       search_start_ = now_sec();
       RCLCPP_INFO(this->get_logger(), "Reached search altitude (%.1fm). Waiting 5s for target acquisition...", search_alt_);
@@ -1423,7 +1429,7 @@ void OffboardPreclandController::st_descend_above_target()
   bool descent_ok = target_rel_norm_ <= dr;
 
   // Low-altitude commit check
-  if (pos_enu_.z < abort_alt_param_ && !descent_ok) {
+  if (get_alt() < abort_alt_param_ && !descent_ok) {
     double age = now_sec() - last_pose_time_;
     if (age <= 0.5 && target_rel_norm_ <= low_alt_max_err_) {
       RCLCPP_WARN(this->get_logger(), "Low-alt guarded commit → FINAL_APPROACH");
@@ -1434,7 +1440,7 @@ void OffboardPreclandController::st_descend_above_target()
 
   // Trigger yaw lock stage transitions
   if (align_yaw_to_tag_) {
-    if (yaw_lock_stage_ == 0 && pos_enu_.z <= yaw_lock_alt_) {
+    if (yaw_lock_stage_ == 0 && get_alt() <= yaw_lock_alt_) {
       yaw_lock_stage_ = 1;
       yaw_locked_ = false;
       yaw_lock_buf_.clear();
@@ -1442,7 +1448,7 @@ void OffboardPreclandController::st_descend_above_target()
       realign_cnt_ = 0;
       yaw_lock_stage_start_ = now_sec();
       RCLCPP_INFO(this->get_logger(), "Entering Stage 1 Yaw Lock at 7m");
-    } else if (yaw_lock_stage_ == 1 && yaw_realign_complete_ && pos_enu_.z <= yaw_lock_alt_2_) {
+    } else if (yaw_lock_stage_ == 1 && yaw_realign_complete_ && get_alt() <= yaw_lock_alt_2_) {
       yaw_lock_stage_ = 2;
       yaw_locked_ = false;
       yaw_lock_buf_.clear();
@@ -1461,7 +1467,7 @@ void OffboardPreclandController::st_descend_above_target()
 
   if (in_lock_hover) {
     double hover_z = (yaw_lock_stage_ == 1) ? yaw_lock_alt_ : yaw_lock_alt_2_;
-    descent_z_sp_ = hover_z;
+    descent_z_sp_ = virtual_pad_z_ + hover_z;
     descent_drift_count_ = 0; // ignore drift checks while hovering
 
     // Check timeout
@@ -1488,7 +1494,7 @@ void OffboardPreclandController::st_descend_above_target()
         RCLCPP_INFO(
           this->get_logger(),
           "YAW-SAMPLING [Stage %d] at %.1fm: %d/%d samples",
-          yaw_lock_stage_, pos_enu_.z, (int)yaw_lock_buf_.size(), yaw_lock_samples_
+          yaw_lock_stage_, get_alt(), (int)yaw_lock_buf_.size(), yaw_lock_samples_
         );
       }
     } else if (rotating) {
@@ -1522,7 +1528,8 @@ void OffboardPreclandController::st_descend_above_target()
   } else {
     if (descent_ok) {
       descent_drift_count_ = 0;
-      descent_z_sp_ = std::max(final_alt_param_, descent_z_sp_ - current_descent_rate() / ctrl_hz_);
+      double abs_final_alt = virtual_pad_z_ + final_alt_param_;
+      descent_z_sp_ = std::max(abs_final_alt, descent_z_sp_ - current_descent_rate() / ctrl_hz_);
     } else {
       descent_drift_count_++;
       descent_z_sp_ = pos_enu_.z;
@@ -1530,7 +1537,8 @@ void OffboardPreclandController::st_descend_above_target()
         RCLCPP_WARN(this->get_logger(), "DESCENT Z-LOCK: err=%.2f > gate=%.2f", target_rel_norm_, dr);
       }
       if (descent_drift_count_ >= align_confirm_) {
-        if (pos_enu_.z > abort_alt_param_) {
+        bool physically_low = pos_enu_.z < (final_alt_param_ + 0.5);
+        if (get_alt() > abort_alt_param_ && !physically_low) {
           search_start_ = now_sec();
           transition(PrecLandState::SEARCH);
         } else {
@@ -1559,10 +1567,10 @@ void OffboardPreclandController::st_descend_above_target()
   }
   target_counter_++;
 
-  if (pos_enu_.z <= final_alt_param_ + 0.05 ||
+  if (get_alt() <= final_alt_param_ + 0.15 ||
       landed_state_ == mavros_msgs::msg::ExtendedState::LANDED_STATE_ON_GROUND) {
-    RCLCPP_INFO(this->get_logger(), "Final altitude or ground contact reached (alt=%.2fm, landed=%d)",
-                pos_enu_.z, landed_state_);
+    RCLCPP_INFO(this->get_logger(), "Final altitude or ground contact reached (relative_alt=%.2fm, landed=%d)",
+                get_alt(), landed_state_);
     transition(PrecLandState::FINAL_APPROACH);
   }
 }
@@ -1576,17 +1584,61 @@ void OffboardPreclandController::st_final_approach()
   // Diagnostic log every second
   if (target_counter_ % ctrl_hz_ == 0) {
     RCLCPP_INFO(this->get_logger(),
-      "FINAL_APPROACH: t=%.1fs alt=%.3fm drop=%.3f/%.3fm landed=%d disarm_req=%s",
-      elapsed, pos_enu_.z, actual_drop, expected_drop,
+      "FINAL_APPROACH: t=%.1fs alt=%.3fm drop=%.3f/%.3fm final_xy=(%.2f,%.2f) landed=%d disarm_req=%s",
+      elapsed, pos_enu_.z, actual_drop, expected_drop, final_x_, final_y_,
       (int)landed_state_, disarm_requested_ ? "true" : "false");
   }
   target_counter_++;
 
-  if (disarm_requested_) return;  // waiting for PX4 to confirm disarm
+  if (disarm_requested_) {
+    // Đã phát hiện chạm đất — ngừng hoàn toàn mọi điều chỉnh XY/Z, tránh dao động
+    // trong lúc chờ PX4 xác nhận disarm.
+    sp_enu_.z = pos_enu_.z - 0.2;
+    return;  // waiting for PX4 to confirm disarm
+  }
 
-  // Ground contact: actual descent has fallen behind expected descent by > 15cm.
-  // This means the drone has been physically blocked from descending for ~0.5s (at 0.3m/s).
-  if (elapsed >= 0.5 && (expected_drop - actual_drop) > 0.15) {
+  // Fast-track: Disarm immediately if PX4's internal land detector confirms we are on the ground
+  if (landed_state_ == mavros_msgs::msg::ExtendedState::LANDED_STATE_ON_GROUND) {
+    RCLCPP_INFO(this->get_logger(), "Ground contact detected via LandedState → force-disarm");
+    set_px4_param_float("COM_DISARM_LAND", 0.1f);
+    disarm_requested_ = true;
+    disarm_attempt_time_first_ = now_sec();
+    disarm();
+    return;
+  }
+
+  // --- Tiếp tục bám target, có giới hạn tốc độ chỉnh (rate-limited), chỉ khi:
+  //   - target vẫn "fresh" (chưa timeout)
+  //   - chưa phát hiện ground contact (đảm bảo ở nhánh trên rồi)
+  if (is_target_fresh()) {
+    auto target_val = target_enu_filtered_.has_value() ? target_enu_filtered_ : target_enu_;
+    if (target_val.has_value()) {
+      double tx = std::get<0>(target_val.value());
+      double ty = std::get<1>(target_val.value());
+      double dx = tx - final_x_;
+      double dy = ty - final_y_;
+      double dist = std::sqrt(dx*dx + dy*dy);
+      if (dist > final_align_step_) {
+        double scale = final_align_step_ / dist;
+        final_x_ += dx * scale;
+        final_y_ += dy * scale;
+      } else {
+        final_x_ = tx;
+        final_y_ = ty;
+      }
+    }
+    // Nếu mất target tạm thời (không fresh), giữ nguyên final_x_/final_y_ hiện tại
+    // — chính là hành vi "blind descent" cũ, dùng làm fallback tự nhiên.
+  }
+
+  // Cập nhật sp_enu_ để dùng chung pub_sp_ với các state khác
+  sp_enu_.x = final_x_;
+  sp_enu_.y = final_y_;
+  // Push setpoint xuống để ép hạ độ cao (blind theo thời gian, như cũ)
+  sp_enu_.z = final_approach_entry_z_ - expected_drop;
+
+  // Ground contact fallback: actual descent has fallen behind expected descent by > 20cm.
+  if (elapsed >= 1.0 && (expected_drop - actual_drop) > 0.20) {
     RCLCPP_INFO(this->get_logger(),
       "Ground contact: blocked by %.1fcm → force-disarm (retry loop takes over)",
       (expected_drop - actual_drop) * 100.0);
@@ -1622,7 +1674,7 @@ void OffboardPreclandController::st_search()
     anchor = pos_enu_;
   }
 
-  sp_enu_ = Vector3{anchor.x, anchor.y, s_alt};
+  sp_enu_ = Vector3{anchor.x, anchor.y, virtual_pad_z_ + s_alt};
 
   if (is_target_fresh() && tracking_count_ >= tracking_confirm_) {
     approach_alt_ = pos_enu_.z;
@@ -1672,7 +1724,8 @@ void OffboardPreclandController::st_target_lost()
   sp_enu_ = pos_enu_; // Hold current position
 
   if (elapsed > target_loss_grace_) {
-    if (pos_enu_.z > abort_alt_param_) {
+    bool physically_low = pos_enu_.z < (final_alt_param_ + 0.5);
+    if (get_alt() > abort_alt_param_ && !physically_low) {
       search_start_ = now_sec();
       transition(PrecLandState::SEARCH);
     } else {
