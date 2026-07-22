@@ -7,6 +7,13 @@
     camera_offset_x: 0.157
     camera_offset_y: 0.0
     camera_offset_z: -0.15
+    # Side of the BLACK external fractal marker, in metres -- NOT the size of
+    # the textured plane, and NOT including marker.png's white quiet zone.
+    # Verified in aruco 3.1.12: custom_fractal.yml has mInfoType 2 (NORMALIZE)
+    # with external corners +/-1, and convertToMeters() scales by
+    # fractalSizeM / getFractalSize(), so the external black square ends up
+    # exactly marker_size metres across.
+    # The pad plane is sized 0.6241 m so that 80.12% black = 0.50 m here.
     marker_size: 0.50
     camera_mount_roll: 180.0
     camera_mount_pitch: 0.0
@@ -101,3 +108,20 @@
     goto_box_alt: 10.0
     goto_box_arrival_radius: 3.0
     box_telemetry_topic: "/b1/telemetry"
+
+    # --- M3: box handshake (GOTO_BOX -> PRELANDING_CHECK -> WAIT_BOX_READY) ---
+    # box_id builds the '/b<box_id>/cmd' service name, which must match
+    # box_state_manager.yaml's box_id -- that file sets box_id: 2, so this is 2.
+    # box_telemetry_topic above is auto-derived to '/b2/telemetry' from this.
+    # If you change one, change the other, or the drone will navigate to one box
+    # and try to hand-shake with a different one.
+    box_id: 2
+    # agent_id sent to the box = drone_id*10 + 2; box_state_manager routes on
+    # agent_id % 10 == 2 (drone) and derives drone_id from agent_id / 10.
+    # Keep this equal to mavros_to_dib_telemetry's drone_id.
+    drone_id: 1
+    # PRELANDING_CHECK -> FALLBACK if gimbal/box telemetry not ready in time.
+    prelanding_timeout_sec: 10.0
+    # WAIT_BOX_READY -> FALLBACK if box never reaches WAITING_FOR_LANDING(7).
+    # Must cover the box's full lid-open + clamp-open sequence in Gazebo.
+    box_ready_timeout_sec: 30.0

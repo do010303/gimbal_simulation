@@ -17,7 +17,7 @@ import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription
 from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
@@ -119,6 +119,12 @@ def generate_launch_description():
         description='Enable CSV logger for real marker distance tests'
     )
 
+    enable_shadow_compensation_arg = DeclareLaunchArgument(
+        'enable_shadow_compensation',
+        default_value='false',
+        description='Enable division normalization to mitigate shadow and lighting gradients'
+    )
+
     logger_expected_distance_cm_arg = DeclareLaunchArgument(
         'logger_expected_distance_cm',
         default_value='0.0',
@@ -189,14 +195,14 @@ def generate_launch_description():
         parameters=[{
             'rtsp_url': LaunchConfiguration('rtsp_url'),
             'frame_id': 'siyi_camera_optical_frame',
-            'flip_180': LaunchConfiguration('flip_180'),
+            'flip_180': PythonExpression(["'", LaunchConfiguration('flip_180'), "' == 'true'"]),
             'target_fps': 30.0,
             'image_width': 1280,
             'image_height': 720,
-            'camera_fx': LaunchConfiguration('camera_fx'),
-            'camera_fy': LaunchConfiguration('camera_fy'),
-            'camera_cx': LaunchConfiguration('camera_cx'),
-            'camera_cy': LaunchConfiguration('camera_cy'),
+            'camera_fx': PythonExpression(['float("', LaunchConfiguration('camera_fx'), '")']),
+            'camera_fy': PythonExpression(['float("', LaunchConfiguration('camera_fy'), '")']),
+            'camera_cx': PythonExpression(['float("', LaunchConfiguration('camera_cx'), '")']),
+            'camera_cy': PythonExpression(['float("', LaunchConfiguration('camera_cy'), '")']),
             'camera_d': [-0.119821, 0.087530, -0.007342, -0.002788, 0.0],
         }],
         output='screen'
@@ -205,12 +211,13 @@ def generate_launch_description():
     # ── 3. Fractal ArUco Tracker ────────────────────────────────────
 
     tracker_node = Node(
-        package='aruco_fractal_tracker',
+        package='precision_landing',
         executable='aruco_fractal_tracker',
         name='aruco_fractal_tracker',
         parameters=[{
             'marker_configuration': LaunchConfiguration('marker_configuration'),
-            'marker_size': LaunchConfiguration('marker_size'),
+            'marker_size': PythonExpression(['float("', LaunchConfiguration('marker_size'), '")']),
+            'enable_shadow_compensation': PythonExpression(["'", LaunchConfiguration('enable_shadow_compensation'), "' == 'true'"]),
             'min_tracking_z': 0.15,
             'max_tracking_z': 20.0,
             'max_pose_jump_m': 2.0,
@@ -278,6 +285,7 @@ def generate_launch_description():
         logger_test_distance_m_arg,
         logger_notes_arg,
         logger_gpu_percent_override_arg,
+        enable_shadow_compensation_arg,
         mavros_launch,
         rtsp_node,
         tracker_node,

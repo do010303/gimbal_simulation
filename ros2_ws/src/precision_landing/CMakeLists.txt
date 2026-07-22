@@ -80,7 +80,10 @@ add_executable(rtsp_publisher src/rtsp_publisher_main.cpp)
 target_link_libraries(rtsp_publisher rtsp_publisher_node)
 
 # ── 3. Offboard Precland Controller Component & Executable ─────────────
-add_library(offboard_precland_controller_node SHARED src/offboard_precland_controller.cpp)
+add_library(offboard_precland_controller_node SHARED
+  src/offboard_precland_controller.cpp
+  src/box_link.cpp  # M3: drone -> box handshake (BoxCmd client)
+)
 ament_target_dependencies(offboard_precland_controller_node
   rclcpp
   geometry_msgs
@@ -98,20 +101,33 @@ rclcpp_components_register_nodes(offboard_precland_controller_node "precision_la
 add_executable(offboard_precland_controller src/offboard_precland_controller_main.cpp)
 target_link_libraries(offboard_precland_controller offboard_precland_controller_node)
 
-# ── 4. AE Analyzer Executable ──────────────────────────────────────────
-add_executable(ae_analyzer src/ae_analyzer.cpp)
-target_link_libraries(ae_analyzer "${ARUCO_LIBRARY}") # Link ArUco library if needed
-ament_target_dependencies(ae_analyzer
+# ── 4. MAVROS -> dib_msgs Telemetry Bridge Component & Executable ──────
+add_library(mavros_to_dib_telemetry_node SHARED src/mavros_to_dib_telemetry_node.cpp)
+ament_target_dependencies(mavros_to_dib_telemetry_node
   rclcpp
-  sensor_msgs
-  cv_bridge
-  OpenCV
+  dib_msgs
+  mavros_msgs
+  rclcpp_components
 )
-install(
-  TARGETS
-    ae_analyzer
-  RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
+rclcpp_components_register_nodes(mavros_to_dib_telemetry_node "precision_landing::MavrosToDibTelemetryNode")
+
+add_executable(mavros_to_dib_telemetry src/mavros_to_dib_telemetry_node_main.cpp)
+target_link_libraries(mavros_to_dib_telemetry mavros_to_dib_telemetry_node)
+
+# ── AE Analyzer Executable (Disabled) ──────────────────────────────────
+# add_executable(ae_analyzer src/ae_analyzer.cpp)
+# target_link_libraries(ae_analyzer "${ARUCO_LIBRARY}")
+# ament_target_dependencies(ae_analyzer
+#   rclcpp
+#   sensor_msgs
+#   cv_bridge
+#   OpenCV
+# )
+# install(
+#   TARGETS
+#     ae_analyzer
+#   RUNTIME DESTINATION lib/${PROJECT_NAME}
+# )
 
 # ── 4. Install Python Tools ───────────────────────────────────────────
 install(
@@ -128,10 +144,11 @@ install(
 )
 
 install(
-  TARGETS 
+  TARGETS
     aruco_fractal_tracker_node
     rtsp_publisher_node
     offboard_precland_controller_node
+    mavros_to_dib_telemetry_node
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin
@@ -139,10 +156,11 @@ install(
 )
 
 install(
-  TARGETS 
+  TARGETS
     aruco_fractal_tracker
     rtsp_publisher
     offboard_precland_controller
+    mavros_to_dib_telemetry
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -162,6 +180,7 @@ ament_export_libraries(
   aruco_fractal_tracker_node
   rtsp_publisher_node
   offboard_precland_controller_node
+  mavros_to_dib_telemetry_node
 )
 
 ament_export_dependencies(

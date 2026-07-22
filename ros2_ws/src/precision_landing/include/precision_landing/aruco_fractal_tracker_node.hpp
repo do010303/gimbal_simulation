@@ -32,6 +32,8 @@
 
 #include <aruco/fractaldetector.h>
 #include <chrono>
+#include <deque>
+#include <utility>
 #include <memory>
 #include <opencv2/opencv.hpp>
 
@@ -58,6 +60,20 @@ private:
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   geometry_msgs::msg::PoseStamped::SharedPtr last_uav_pose_;
+  // Short history of UAV poses so the debug overlay can be drawn with the pose
+  // that was true AT THE IMAGE'S TIMESTAMP, not the newest pose available. The
+  // image arrives queued behind the gz bridge, so using the newest pose paints
+  // an altitude that disagrees with the marker distance measured from that same
+  // frame (observed: 0.75 m apart during a 0.4 m/s descent in 7b).
+  std::deque<std::pair<double, geometry_msgs::msg::PoseStamped::SharedPtr>> uav_pose_history_;
+  static constexpr double kPoseHistorySec = 5.0;
+  double last_overlay_pose_skew_s_{0.0};   // image stamp - chosen pose stamp
+  /// UAV pose time-matched to the frame currently being processed. Set at the
+  /// top of imageCallback and used by both the overlay and acceptPose()'s
+  /// altitude sanity gate, so the two never disagree about when "now" is.
+  geometry_msgs::msg::PoseStamped::SharedPtr frame_pose_;
+  /// Newest pose no later than `stamp`, else the closest available.
+  geometry_msgs::msg::PoseStamped::SharedPtr poseAt(double stamp);
 
   sensor_msgs::msg::CameraInfo last_camera_info_;
   bool camera_info_initialized_{false};
@@ -94,6 +110,7 @@ private:
   bool last_box_yaw_valid_{false};
   double current_fps_{0.0};
   rclcpp::Time last_fps_time_;
+  rclcpp::Time last_valid_pose_time_;
   size_t fps_frame_count_{0};
 
   long last_sys_total_{0};
@@ -106,6 +123,7 @@ private:
 
   // Glare compensation parameters & state
   bool enable_glare_compensation_{false};
+  bool enable_shadow_compensation_{false};
   double glare_gamma_{0.4};
   int clahe_clip_limit_{3};
   int clahe_tile_size_{8};

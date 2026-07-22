@@ -43,7 +43,27 @@ Project này chứa pipeline hạ cánh chính xác cho drone `x500_gimbal` tron
 
    # Kiểm tra mô hình box landing pad
    ls ~/PX4/Tools/simulation/gz/models/dib_box_landing_pad/model.sdf
+
+   # M3.5 — marker fractal gắn lên box khớp động (xem mục 4)
+   ls ~/PX4/Tools/simulation/gz/models/dib_box_marker/model.sdf
    ```
+
+   > **Lưu ý về `fractal_aruco_landing.sdf` sau M3.5.** World này **không còn
+   > `<include>` `dib_box_landing_pad`**. Marker giờ nằm trên box khớp động
+   > (`box_simulation`) do `box_spawn_only.launch.py` spawn vào. Nếu để cả hai
+   > thì world sẽ có **hai marker fractal giống hệt nhau**, tracker bám vào cái
+   > nào rõ hơn và drone hạ xuống pad tĩnh thay vì vào lòng box — trong khi mọi
+   > log và FSM vẫn *trông như* đang chạy đúng. Hướng dẫn khôi phục pad tĩnh
+   > nằm ngay trong chú thích của file world.
+
+4. **Áp overlay cho các package ngoài repo** (chỉ cần khi chạy pipeline M3.5):
+
+   ```bash
+   cp examples/SITL_PrecisionLanding/overlays/box_simulation/launch/box_spawn_only.launch.py \
+      <đường-dẫn>/box_simulation/launch/
+   ```
+
+   Chi tiết: `overlays/README.md`.
 
 ---
 
@@ -627,3 +647,233 @@ source /opt/ros/humble/setup.bash
 source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
 ros2 topic echo /siyi/fractal_pose
 ```
+
+---
+
+## 4. Drone-in-a-Box — Pipeline Đầy Đủ (M3.5)
+
+Toàn bộ hệ thống trong **một world Gazebo duy nhất**: drone `x500_gimbal` bắt
+tay với box qua service `dib_msgs`, box thật (khớp nắp + kẹp, điều khiển bằng
+ros2_control) mở nắp đón, drone hạ cánh bằng thị giác xuống marker fractal nằm
+trên sàn box, rồi box kẹp giữ drone.
+
+```
+box_manager  ──service──▶  box_hardware_adapter  ──JointTrajectory──▶  ros2_control
+     ▲                                                                      │
+     └──────────────  /joint_states  ◀──────────  Gazebo (cùng world)  ◀─────┘
+                                                        │
+drone: MAVROS ──▶ mavros_to_dib_telemetry ──▶ box_manager
+       camera ──▶ aruco_fractal_tracker ──▶ offboard_precland_controller ──▶ MAVROS
+```
+
+### 4.1. Thành phần
+
+| Package | Vai trò |
+|---|---|
+| `precision_landing` | Tracker fractal + `offboard_precland_controller` (FSM hạ cánh, C++) + `mavros_to_dib_telemetry` |
+| `box_manager` | FSM của box (`EMPTY → PREPARING_FOR_LANDING → WAITING_FOR_LANDING → SECURING_DRONE`) |
+| `box_hardware_adapter` | Dịch service của `box_manager` thành `JointTrajectory` cho ros2_control, và dịch `/joint_states` ngược lại thành `/lid/status`, `/clamp/status` |
+| `box_simulation` | Model box khớp động (nắp, 2 cặp kẹp) |
+| `dib_box_marker` | Marker fractal 0.50 m đặt trên sàn box |
+
+### 4.2. Chuẩn bị
+
+Yêu cầu build từ nguồn của `gz_ros2_control` cho **Gazebo Harmonic**. Bản apt
+`ros-humble-gz-ros2-control` build cho **Fortress** và sẽ làm gz server
+**segfault** khi spawn box (plugin system Harmonic nạp plugin hardware Fortress
+qua pluginlib → truyền `v8::EntityComponentManager` vào hàm nhận `v6::`).
+
+```bash
+# Kiểm tra: nếu còn bản apt thì gỡ đi cho chắc
+apt-cache rdepends --installed ros-humble-gz-ros2-control   # phải RỖNG
+sudo apt remove ros-humble-gz-ros2-control
+```
+
+### 4.3. Dọn tiến trình cũ
+
+Bỏ qua bước này là nguyên nhân phổ biến nhất khiến máy lag và lần chạy sau
+hỏng theo kiểu khó hiểu.
+
+```bash
+pkill -f 'px4|gz sim|gzserver|ruby.*gz|robot_state_publisher|spawner|controller_manager'
+pkill -f 'mavros|offboard_precland|aruco_fractal|box_state_manager'
+sleep 2
+pgrep -af 'px4|gz sim' || echo "sach"
+```
+
+### 4.4. Header cho MỌI terminal
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+```
+
+### 4.5. Giai đoạn A — dựng world và kiểm box/marker (2 terminal)
+
+Chạy riêng giai đoạn này trước. Nếu marker không hiện thì cả pipeline chắc chắn
+thất bại, mà giai đoạn A chỉ tốn 2 tiến trình thay vì 9.
+
+**Terminal 1 — PX4 + Gazebo:**
+```bash
+export GZ_SIM_RESOURCE_PATH=$HOME/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/box_simulation/share
+cd ~/PX4 && PX4_GZ_NO_FOLLOW=1 make px4_sitl gz_x500_gimbal_fractal_aruco_landing
+```
+
+> **Hai biến này bắt buộc ở Terminal 1, không phải ở đâu khác.**
+>
+> - `GZ_SIM_RESOURCE_PATH` — tiến trình phân giải `model://` là **gz server**,
+>   do PX4 khởi động. Đặt biến này trong launch file spawn **không có tác
+>   dụng**: `SetEnvironmentVariable` chỉ áp cho tiến trình con của launch đó.
+>   Thiếu nó thì box spawn thành công về mặt vật lý (có trong `gz model --list`,
+>   controller nạp đủ, `/joint_states` chạy) nhưng **mọi `<visual>` đều rỗng** —
+>   một cái box vô hình, rất dễ đọc nhầm thành "spawn hỏng".
+>   PX4 **nối thêm** chứ không ghi đè biến này, nên export trước là an toàn.
+> - `PX4_GZ_NO_FOLLOW=1` — bỏ khoá camera Gazebo theo drone, để xoay đi nhìn
+>   box. Đang chạy rồi mà quên thì:
+>   `gz topic -t /gui/track -m gz.msgs.CameraTrack -p "track_mode: NONE"`
+>   (`PX4_NO_FOLLOW` không tồn tại; `PX4_NO_FOLLOW_MODE` chỉ dành cho
+>   gazebo-classic.)
+
+Đợi tới khi thấy dấu nhắc `pxh>` rồi mới sang Terminal 2.
+
+**Terminal 2 — spawn box + marker vào chính world đó:**
+```bash
+ros2 launch box_simulation box_spawn_only.launch.py
+```
+
+Launch chờ **20 giây** sau khi spawn xong rồi mới nạp 4 controller. Đây là cố ý:
+`controller_manager` nằm trong plugin gz và chỉ khởi động khi box được spawn;
+gọi `load_controller` ngay lúc đó bắt gặp nó đang khởi tạo và phản hồi mất
+~15 s, trong khi cả `ros2 control load_controller` lẫn `spawner` đều
+hard-code timeout **10 s** cho lời gọi service ở Humble. Mỗi controller cũng
+chạy một tiến trình `spawner` riêng, để một cái lỗi không chặn ba cái còn lại.
+
+**Kiểm (sau Terminal 2 khoảng 40 giây):**
+```bash
+gz model --list                       # có Box và dib_box_marker
+gz model -m Box -p                    # [2.5 -2.0 0.78233] [1.5708 0 0]
+ros2 control list_controllers         # 4 dòng, tất cả 'active'
+ros2 topic echo --once /joint_states  # 6 joint
+```
+
+Controller nào còn `unconfigured` thì nó **đã nạp**, chỉ mất nửa sau do timeout.
+Hoàn tất bằng tay, **hai bước** (`unconfigured → active` không phải chuyển
+trạng thái hợp lệ):
+```bash
+ros2 control set_controller_state joint_state_broadcaster configure
+ros2 control set_controller_state joint_state_broadcaster active
+```
+
+**Mở nắp và xác nhận marker:**
+```bash
+ros2 topic pub -r 2 -t 6 /joint_lid_controller/joint_trajectory \
+  trajectory_msgs/msg/JointTrajectory \
+  '{joint_names: ["lid_left_joint"], points: [{positions: [1.57], time_from_start: {sec: 2}}]}'
+```
+
+> Dùng `-r 2 -t 6`, **không dùng `--once`**: `--once` hủy publisher ngay khi vừa
+> gửi, thường là trước khi controller kịp discovery xong, và message rơi mất
+> trong im lặng.
+
+Nhìn vào lòng box: phải thấy ô marker fractal đen-trắng trên mặt sàn.
+
+### 4.6. Giai đoạn B — vòng kín (thêm 7 terminal)
+
+Giữ nguyên Terminal 1 và 2.
+
+| T | Lệnh |
+|---|---|
+| 3 | `ros2 launch precision_landing sitl_precland.launch.py` |
+| 4 | `ros2 launch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557" use_sim_time:=true` |
+| 5 | `ros2 run box_hardware_adapter box_hardware_adapter_node` |
+| 6 | `ros2 run box_manager box_state_manager_node --ros-args --params-file ~/PX4/examples/box_manager/config/box_state_manager.yaml` |
+| 7 | fixture GPS cho box — xem 4.7 |
+| 8 | `ros2 run precision_landing mavros_to_dib_telemetry --ros-args -p drone_id:=1` |
+| 9 | `ros2 run rqt_image_view rqt_image_view /precision_landing/debug_image` |
+
+Bay, trong `pxh>` của Terminal 1:
+```
+pxh> commander takeoff
+pxh> commander land
+```
+`offboard_precland_controller` bắt được `AUTO.LAND`, tự chuyển sang `OFFBOARD`
+và bắt đầu chuỗi `GOTO_BOX → PRELANDING_CHECK → WAIT_BOX_READY → START`.
+
+**Thấy FSM đứng ở `IDLE` khi chưa chạy MAVROS là ĐÚNG**, không phải hỏng:
+controller chỉ rời `IDLE` khi MAVROS báo drone đang bay.
+
+### 4.7. Ba cấu hình sai là hỏng cả lần chạy
+
+**1. `box_id` phải khớp giữa hai file.** `box_state_manager.yaml` dùng
+`box_id: 2`, nên `offboard_precland_params.yaml` cũng phải là `2`. Lệch nhau thì
+drone gọi `b1/cmd` (không tồn tại) và chờ `/b1/telemetry` (không ai publish) →
+`box_telemetry_valid_` mãi false → FSM **bỏ qua toàn bộ phần bắt tay** mà không
+báo lỗi nào. Xác nhận bằng log khởi động:
+```
+Derived box_telemetry_topic='/b2/telemetry' from box_id=2
+BoxLink: box_id=2 drone_id=1, cmd service 'b2/cmd', agent_id=12
+```
+
+**2. Box phải có toạ độ GPS.** `box_state_manager` lấy vị trí box từ topic
+`gps` (`sensor_msgs/NavSatFix`). Trong SITL **không ai publish topic này** —
+sensor `navsat` của `box_simulation` chưa có `ros_gz_bridge`. Hậu quả:
+`box_info.latitude/longitude` bằng 0, `st_goto_box()` tính setpoint cách hàng
+nghìn km và drone bay đi mất. Cần một node publish `/gps` tại đúng vị trí
+marker, ENU `(2.5129, −2.5896)` trong `fractal_aruco_landing`:
+```
+lat = 47.397947795   lon = 8.546197088
+```
+
+**3. `marker_size` phải khớp kích thước plane thật.** `marker.png` có viền
+trắng rộng 1 module, nên marker **đen** chỉ chiếm 80.12% cạnh ảnh. Muốn marker
+đen đúng 0.50 m (giá trị `marker_size` trong `offboard_precland_params.yaml`)
+thì plane phải là `0.50 / 0.8012 = 0.6241 m`. Đổi một số thì phải đổi số kia,
+nếu không pose sẽ sai **thang đo** → sai độ cao → flare sớm hoặc cắm xuống.
+
+### 4.8. Dấu hiệu chạy đúng
+
+FSM drone và box đan xen nhau theo đúng quan hệ nhân quả:
+```
+DRONE  -> GOTO_BOX -> PRELANDING_CHECK -> WAIT_BOX_READY
+BOX    -> PREPARING_FOR_LANDING(6) -> WAITING_FOR_LANDING(7)
+DRONE  -> START -> HORIZONTAL_APPROACH -> DESCEND_ABOVE_TARGET -> FINAL_APPROACH
+MAVROS -> landed_state=ON_GROUND
+BOX    -> SECURING_DRONE(8)
+```
+- Box chỉ rời `EMPTY` **sau** khi drone vào `WAIT_BOX_READY` → chính
+  `REQUEST_LANDING` của drone gây ra.
+- Drone chỉ vào `START` **sau** khi box báo `WAITING_FOR_LANDING` → không chạy
+  trước nắp box.
+- **Không có** `SEARCH` kéo dài và **không có** `FALLBACK`.
+
+Adapter điều khiển đúng cơ cấu box:
+```
+/lid/cmd   command=1 -> lid target 1.570 rad     (mở nắp đón drone)
+/clamp/cmd select=1 h_cmd=200 -> h=0.200 m       (kẹp ngang, sau khi đáp)
+/clamp/cmd select=2 v_cmd=200 -> v=0.200 m       (kẹp dọc)
+/lid/cmd   command=0 -> lid target 0.000 rad     (đóng nắp)
+```
+
+Kết quả tham chiếu của lần chạy đạt: **sai số hạ cánh 4.0 cm**
+(`final_xy=(2.54, −2.56)` so với marker `(2.5129, −2.5896)`), độ cao lúc chạm
+`0.602–0.628 m` khớp cao độ sàn box `0.63673 m`.
+
+Dòng `Ground contact: blocked by 20.5cm → force-disarm` **không phải lỗi**:
+drone dừng cao hơn mặt đất 0.6 m vì nó đang đứng trên box, và nhánh
+force-disarm xử lý đúng tình huống đó.
+
+Marker fractal tự rụng tầng theo độ cao, đúng thiết kế — `ids=[0,1,2]` ở trên
+cao, `ids=[1,2]` khi xuống ~0.65 m (tầng ngoài 0.50 m ra khỏi khung hình, hai
+tầng trong 0.125 m và 0.031 m tiếp quản).
+
+### 4.9. Giới hạn đã biết
+
+`box_manager` dừng ở `SECURING_DRONE`, securing state 5, lặp
+`Waiting for drone to request power off`. Chuỗi kẹp/nắp đã hoàn tất; box chờ
+drone gọi tiếp để sang `CHARGING`, nhưng phía drone **chưa có** bước yêu cầu
+power-off sau khi disarm. Đây là phần còn thiếu của vòng đời đầy đủ, chưa được
+triển khai.
+
+`box_simulation` chưa có `ros_gz_bridge` cho sensor `navsat`, nên vẫn phải dùng
+node fixture publish `/gps` (mục 4.7).

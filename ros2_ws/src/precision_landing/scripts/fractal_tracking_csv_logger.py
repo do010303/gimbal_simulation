@@ -176,6 +176,43 @@ class FractalTrackingCsvLogger(Node):
             return self.last_gpu_percent
 
         self.last_gpu_query_time = now_monotonic
+
+        # 1. Try Jetson-specific sysfs paths
+        jetson_gpu_paths = [
+            "/sys/devices/gpu.0/load",
+            "/sys/class/devfreq/gp10b/device/load",
+            "/sys/class/devfreq/17000000.gp10b/device/load",
+            "/sys/class/devfreq/gv11b/device/load",
+            "/sys/class/devfreq/17000000.gv11b/device/load",
+            "/sys/devices/platform/host1x/17000000.gp10b/load",
+            "/sys/devices/platform/host1x/17000000.gv11b/load",
+        ]
+        for path in jetson_gpu_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        val = float(f.read().strip())
+                        # On Jetson, load is typically out of 1000 (e.g. 150 = 15%)
+                        if val > 100.0:
+                            val = val / 10.0
+                        self.last_gpu_percent = val
+                        return self.last_gpu_percent
+                except Exception:
+                    pass
+
+        # 2. Try jetson-stats jtop API if installed
+        try:
+            from jtop import jtop
+            with jtop() as jetson:
+                if jetson.ok():
+                    gpu_stats = jetson.gpu
+                    if gpu_stats and 'val' in gpu_stats:
+                        self.last_gpu_percent = float(gpu_stats['val'])
+                        return self.last_gpu_percent
+        except ImportError:
+            pass
+
+        # 3. Fallback to nvidia-smi (for standard Linux PCs)
         try:
             result = subprocess.run(
                 [
@@ -188,19 +225,14 @@ class FractalTrackingCsvLogger(Node):
                 text=True,
                 timeout=0.5,
             )
+            if result.returncode == 0:
+                first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ''
+                self.last_gpu_percent = float(first_line.strip())
+                return self.last_gpu_percent
         except (OSError, subprocess.SubprocessError):
-            self.last_gpu_percent = math.nan
-            return self.last_gpu_percent
+            pass
 
-        if result.returncode != 0:
-            self.last_gpu_percent = math.nan
-            return self.last_gpu_percent
-
-        first_line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ''
-        try:
-            self.last_gpu_percent = float(first_line.strip())
-        except ValueError:
-            self.last_gpu_percent = math.nan
+        self.last_gpu_percent = math.nan
         return self.last_gpu_percent
 
     @staticmethod

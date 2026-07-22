@@ -37,9 +37,9 @@ RtspPublisher::RtspPublisher(const rclcpp::NodeOptions & options)
   camera_cy_ = this->get_parameter("camera_cy").as_double();
   camera_d_ = this->get_parameter("camera_d").as_double_array();
 
-  // Create Publishers
-  image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/siyi/image_raw", 10);
-  info_pub_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("/siyi/camera_info", 10);
+  // Create Publishers (Queue size = 1 to prevent latency buildup)
+  image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("/siyi/image_raw", 1);
+  info_pub_ = this->create_publisher<sensor_msgs::msg::CameraInfo>("/siyi/camera_info", 1);
 
   // Build static CameraInfo msg
   camera_info_msg_ = build_camera_info();
@@ -159,6 +159,11 @@ void RtspPublisher::timer_callback()
 
   fail_count_ = 0;
   frame_count_++;
+
+  // Resize frame if the physical stream size differs from requested parameters
+  if (frame.cols != image_width_ || frame.rows != image_height_) {
+    cv::resize(frame, frame, cv::Size(image_width_, image_height_));
+  }
 
   if (flip_180_) {
     cv::flip(frame, frame, -1);

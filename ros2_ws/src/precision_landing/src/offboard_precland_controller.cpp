@@ -88,6 +88,12 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   this->declare_parameter<double>("goto_box_alt", 10.0);
   this->declare_parameter<double>("goto_box_arrival_radius", 3.0);
   this->declare_parameter<std::string>("box_telemetry_topic", "/b1/telemetry");
+  // M3 - box handshake. box_telemetry_topic is derived from box_id below
+  // unless it was explicitly overridden, so a single box_id is enough.
+  this->declare_parameter<int>("box_id", 1);
+  this->declare_parameter<int>("drone_id", 1);
+  this->declare_parameter<double>("prelanding_timeout_sec", 10.0);
+  this->declare_parameter<double>("box_ready_timeout_sec", 30.0);
 
   // --- Get Parameters ---
   camera_x_to_body_east_sign_ = this->get_parameter("camera_x_to_body_east_sign").as_double();
@@ -167,6 +173,19 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   goto_box_alt_ = this->get_parameter("goto_box_alt").as_double();
   goto_box_arrival_radius_ = this->get_parameter("goto_box_arrival_radius").as_double();
   box_telemetry_topic_ = this->get_parameter("box_telemetry_topic").as_string();
+  box_id_ = this->get_parameter("box_id").as_int();
+  drone_id_ = this->get_parameter("drone_id").as_int();
+  prelanding_timeout_sec_ = this->get_parameter("prelanding_timeout_sec").as_double();
+  box_ready_timeout_sec_ = this->get_parameter("box_ready_timeout_sec").as_double();
+
+  // Keep the telemetry topic and the cmd service pointing at the same box.
+  // If the user left box_telemetry_topic at its default, derive it from box_id
+  // so setting box_id alone is sufficient; an explicit override still wins.
+  if (box_telemetry_topic_ == "/b1/telemetry" && box_id_ != 1) {
+    box_telemetry_topic_ = "/b" + std::to_string(box_id_) + "/telemetry";
+    RCLCPP_INFO(this->get_logger(), "Derived box_telemetry_topic='%s' from box_id=%d",
+                box_telemetry_topic_.c_str(), box_id_);
+  }
 
   // --- QoS Profiles ---
   rmw_qos_profile_t pose_qos_profile = rmw_qos_profile_default;
@@ -229,7 +248,18 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
     std::bind(&OffboardPreclandController::on_gps_position, this, std::placeholders::_1)
   );
 
+  // M3: camera pipeline liveness for PRELANDING_CHECK. Topic matches the
+  // remap in sitl_precland.launch.py / real_precland.launch.py.
+  sub_camera_info_ = this->create_subscription<sensor_msgs::msg::CameraInfo>(
+    "/gimbal_camera/camera_info", rclcpp::SensorDataQoS(),
+    std::bind(&OffboardPreclandController::on_camera_info, this, std::placeholders::_1)
+  );
+
   // --- Service Clients ---
+  // M3: box handshake link. Created before the MAVROS clients so it is ready
+  // by the time the control loop can first reach PRELANDING_CHECK.
+  box_link_ = std::make_unique<BoxLink>(this, box_id_, drone_id_);
+
   set_mode_client_ = this->create_client<mavros_msgs::srv::SetMode>("/mavros/set_mode");
   arm_client_ = this->create_client<mavros_msgs::srv::CommandBool>("/mavros/cmd/arming");
   cmd_client_ = this->create_client<mavros_msgs::srv::CommandLong>("/mavros/cmd/command");
@@ -341,6 +371,12 @@ void OffboardPreclandController::on_box_telemetry(const dib_msgs::msg::BoxTeleme
   box_yaw_ = msg->box_info.yaw;
   box_telemetry_valid_ = true;
   last_box_telemetry_time_ = now_sec();
+
+  // M3: single subscription feeds both the GOTO_BOX navigation path above and
+  // the box handshake, so the two can never disagree about which box we mean.
+  if (box_link_) {
+    box_link_->set_box_state(msg->box_state.state);
+  }
 }
 
 void OffboardPreclandController::on_gps_position(const sensor_msgs::msg::NavSatFix::SharedPtr msg)
@@ -351,6 +387,14 @@ void OffboardPreclandController::on_gps_position(const sensor_msgs::msg::NavSatF
   drone_lat_ = msg->latitude;
   drone_lon_ = msg->longitude;
   gps_valid_ = true;
+}
+
+void OffboardPreclandController::on_camera_info(const sensor_msgs::msg::CameraInfo::SharedPtr)
+{
+  // M3: liveness only. PRELANDING_CHECK uses this to refuse the box handshake
+  // when the camera pipeline (gz image bridge -> tracker) is dead, instead of
+  // committing the box to opening its lid for a drone that cannot see.
+  last_camera_info_time_ = now_sec();
 }
 
 void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
@@ -791,6 +835,13 @@ bool OffboardPreclandController::can_transition(PrecLandState from, PrecLandStat
     case PrecLandState::FLIGHT_IN_PROGRESS:
       return (to == PrecLandState::GOTO_BOX || to == PrecLandState::START);
     case PrecLandState::GOTO_BOX:
+      // M3: normal arrival now goes through the box handshake. START is kept
+      // as the degraded path taken when box telemetry times out - with no
+      // telemetry there is no handshake to make, so land visually.
+      return (to == PrecLandState::PRELANDING_CHECK || to == PrecLandState::START);
+    case PrecLandState::PRELANDING_CHECK:
+      return (to == PrecLandState::WAIT_BOX_READY);
+    case PrecLandState::WAIT_BOX_READY:
       return (to == PrecLandState::START);
     case PrecLandState::START:
       return (to == PrecLandState::HORIZONTAL_APPROACH || to == PrecLandState::SEARCH);
@@ -934,6 +985,8 @@ void OffboardPreclandController::transition(PrecLandState new_state)
       case PrecLandState::IDLE: return "IDLE";
       case PrecLandState::FLIGHT_IN_PROGRESS: return "FLIGHT_IN_PROGRESS";
       case PrecLandState::GOTO_BOX: return "GOTO_BOX";
+      case PrecLandState::PRELANDING_CHECK: return "PRELANDING_CHECK";
+      case PrecLandState::WAIT_BOX_READY: return "WAIT_BOX_READY";
       case PrecLandState::START: return "START";
       case PrecLandState::HORIZONTAL_APPROACH: return "HORIZONTAL_APPROACH";
       case PrecLandState::DESCEND_ABOVE_TARGET: return "DESCEND_ABOVE_TARGET";
@@ -1081,6 +1134,8 @@ void OffboardPreclandController::control_loop()
     case PrecLandState::IDLE:                 st_idle(); break;
     case PrecLandState::FLIGHT_IN_PROGRESS:   st_flight_in_progress(); break;
     case PrecLandState::GOTO_BOX:              st_goto_box(); break;
+    case PrecLandState::PRELANDING_CHECK:      st_prelanding_check(); break;
+    case PrecLandState::WAIT_BOX_READY:        st_wait_box_ready(); break;
     case PrecLandState::START:                st_start(); break;
     case PrecLandState::HORIZONTAL_APPROACH:   st_horizontal_approach(); break;
     case PrecLandState::DESCEND_ABOVE_TARGET:  st_descend_above_target(); break;
@@ -1138,6 +1193,8 @@ void OffboardPreclandController::control_loop()
         case PrecLandState::IDLE: return "IDLE";
         case PrecLandState::FLIGHT_IN_PROGRESS: return "FLIGHT_IN_PROGRESS";
         case PrecLandState::GOTO_BOX: return "GOTO_BOX";
+        case PrecLandState::PRELANDING_CHECK: return "PRELANDING_CHECK";
+        case PrecLandState::WAIT_BOX_READY: return "WAIT_BOX_READY";
         case PrecLandState::START: return "START";
         case PrecLandState::HORIZONTAL_APPROACH: return "HORIZONTAL_APPROACH";
         case PrecLandState::DESCEND_ABOVE_TARGET: return "DESCEND_ABOVE_TARGET";
@@ -1236,20 +1293,7 @@ void OffboardPreclandController::st_goto_box()
     RCLCPP_WARN(this->get_logger(), "GOTO_BOX: Box telemetry timeout (>5s). Falling back to START.");
     
     // Initialize standard search
-    land_hold_pos_ = pos_enu_;
-    sp_enu_ = pos_enu_;
-    held_yaw_ = get_yaw(q_att_);
-    sp_yaw_ = held_yaw_;
-    tag_yaw_abs_.reset();
-    yaw_locked_ = false;
-    yaw_lock_buf_.clear();
-    start_z_sp_ = pos_enu_.z;
-    approach_alt_ = pos_enu_.z;
-    search_cnt_ = 0;
-    target_samples_.clear();
-    target_enu_.reset();
-    target_rel_norm_ = 9999.0;
-    tracking_count_ = 0;
+    init_visual_landing();
 
     transition(PrecLandState::START);
     return;
@@ -1279,26 +1323,27 @@ void OffboardPreclandController::st_goto_box()
     }
 
     if (dist <= goto_box_arrival_radius_) {
-      RCLCPP_INFO(this->get_logger(), "GOTO_BOX: Arrived at box (dist=%.2fm <= radius=%.2fm). Transitioning to START",
+      // M3: arriving over the box no longer goes straight to visual landing.
+      // Check our own sensors first, then ask the box to open up.
+      RCLCPP_INFO(this->get_logger(),
+                  "GOTO_BOX: Arrived at box (dist=%.2fm <= radius=%.2fm). Transitioning to PRELANDING_CHECK",
                   dist, goto_box_arrival_radius_);
-      
-      // Initialize standard search
-      land_hold_pos_ = pos_enu_;
-      sp_enu_ = pos_enu_;
-      held_yaw_ = get_yaw(q_att_);
-      sp_yaw_ = held_yaw_;
-      tag_yaw_abs_.reset();
-      yaw_locked_ = false;
-      yaw_lock_buf_.clear();
-      start_z_sp_ = pos_enu_.z;
-      approach_alt_ = pos_enu_.z;
-      search_cnt_ = 0;
-      target_samples_.clear();
-      target_enu_.reset();
-      target_rel_norm_ = 9999.0;
-      tracking_count_ = 0;
 
-      transition(PrecLandState::START);
+      // Hold over the BOX, not over wherever we happened to trip the arrival
+      // radius. Arrival fires at goto_box_arrival_radius (3 m) of slack, so
+      // freezing pos_enu_ here parks the drone up to 3 m off-centre; the
+      // camera's vertical half-footprint is only alt*0.48 (vFOV 51.3 deg), so
+      // that slack pushes the marker out of frame as START descends. Holding
+      // the box position instead lets the handshake hover double as the final
+      // centring manoeuvre.
+      handshake_hold_ = Vector3{box_east, box_north, goto_box_alt_};
+      // Freeze the heading at whatever we arrived with. update_yaw() slews
+      // sp_yaw_ toward held_yaw_ every tick, so without this the drone would
+      // slowly rotate toward a stale held_yaw_ while hovering through the
+      // handshake. init_visual_landing() re-sets it on entry to START.
+      held_yaw_ = get_yaw(q_att_);
+      prelanding_start_.reset();
+      transition(PrecLandState::PRELANDING_CHECK);
     }
   } else {
     // If GPS position is not valid yet, hold current position
@@ -1312,6 +1357,124 @@ void OffboardPreclandController::st_goto_box()
                   (int)gps_valid_, (int)box_telemetry_valid_);
     }
   }
+}
+
+void OffboardPreclandController::init_visual_landing()
+{
+  // Reset every visual-landing tracker so START begins from a clean slate.
+  // Shared by all paths into START (GOTO_BOX timeout, WAIT_BOX_READY success)
+  // so a future path cannot forget one of these and inherit stale target data.
+  land_hold_pos_ = pos_enu_;
+  sp_enu_ = pos_enu_;
+  held_yaw_ = get_yaw(q_att_);
+  sp_yaw_ = held_yaw_;
+  tag_yaw_abs_.reset();
+  yaw_locked_ = false;
+  yaw_lock_buf_.clear();
+  start_z_sp_ = pos_enu_.z;
+  approach_alt_ = pos_enu_.z;
+  search_cnt_ = 0;
+  target_samples_.clear();
+  target_enu_.reset();
+  target_rel_norm_ = 9999.0;
+  tracking_count_ = 0;
+}
+
+void OffboardPreclandController::st_prelanding_check()
+{
+  // Hold station above the box. The setpoint stream must never stop here or
+  // PX4 drops out of OFFBOARD while we are waiting.
+  sp_enu_ = Vector3{handshake_hold_.x, handshake_hold_.y, goto_box_alt_};
+
+  const double now = now_sec();
+  if (!prelanding_start_.has_value()) {
+    prelanding_start_ = now;
+    // New landing attempt: drop any ready-latch / request guard left over from
+    // a previous cycle, so WAIT_BOX_READY genuinely waits for THIS opening.
+    box_link_->reset();
+    RCLCPP_INFO(this->get_logger(), "PRELANDING_CHECK: verifying gimbal + tracker before asking box b%d",
+                box_id_);
+  }
+
+  const double elapsed = now - prelanding_start_.value();
+
+  // Readiness gates. gimbal_configured_ proves the camera is actually pointing
+  // down; box telemetry freshness proves we can still hear the box (without it
+  // WAIT_BOX_READY could never observe box_state == WAITING_FOR_LANDING).
+  //
+  // NOTE gimbal_configured_ only means "the gimbal command was SENT", not that
+  // the camera is actually looking down -- it is a weak gate. The camera_ok
+  // check below is what makes this state non-vacuous: it proves the gz image
+  // bridge and the camera itself are alive before we ask the box to open its
+  // lid. Neither gate can prove the marker is in frame; that is START/SEARCH's
+  // job, and getting there centred is why the handshake holds over the box.
+  const bool gimbal_ok = gimbal_configured_;
+  const bool box_fresh = box_telemetry_valid_ && ((now - last_box_telemetry_time_) < 5.0);
+  const bool camera_ok = (last_camera_info_time_ > 0.0) && ((now - last_camera_info_time_) < 3.0);
+
+  if (gimbal_ok && box_fresh && camera_ok) {
+    RCLCPP_INFO(this->get_logger(),
+                "PRELANDING_CHECK: passed after %.1fs (gimbal sent, box telemetry fresh, "
+                "camera alive). Transitioning to WAIT_BOX_READY", elapsed);
+    wait_box_start_.reset();
+    transition(PrecLandState::WAIT_BOX_READY);
+    return;
+  }
+
+  if (elapsed > prelanding_timeout_sec_) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "PRELANDING_CHECK: timeout after %.1fs (gimbal_ok=%d, box_fresh=%d, "
+                 "camera_ok=%d). FALLBACK.",
+                 elapsed, (int)gimbal_ok, (int)box_fresh, (int)camera_ok);
+    transition(PrecLandState::FALLBACK);
+    return;
+  }
+
+  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                       "PRELANDING_CHECK: waiting (gimbal_ok=%d, box_fresh=%d, camera_ok=%d, "
+                       "%.1f/%.1fs)",
+                       (int)gimbal_ok, (int)box_fresh, (int)camera_ok,
+                       elapsed, prelanding_timeout_sec_);
+}
+
+void OffboardPreclandController::st_wait_box_ready()
+{
+  // Keep holding station - same reason as PRELANDING_CHECK.
+  sp_enu_ = Vector3{handshake_hold_.x, handshake_hold_.y, goto_box_alt_};
+
+  const double now = now_sec();
+  if (!wait_box_start_.has_value()) {
+    wait_box_start_ = now;
+  }
+  const double elapsed = now - wait_box_start_.value();
+
+  // Idempotent: only actually sends once, retries internally if the box never
+  // answered. Safe to call every tick.
+  box_link_->request_landing();
+
+  if (box_link_->is_ready()) {
+    RCLCPP_INFO(this->get_logger(),
+                "WAIT_BOX_READY: box b%d reports WAITING_FOR_LANDING after %.1fs. "
+                "Starting visual landing.", box_id_, elapsed);
+    init_visual_landing();
+    transition(PrecLandState::START);
+    return;
+  }
+
+  if (elapsed > box_ready_timeout_sec_) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "WAIT_BOX_READY: box b%d not ready after %.1fs "
+                 "(box_state=%u, expected WAITING_FOR_LANDING=7, request_accepted=%d). FALLBACK.",
+                 box_id_, elapsed, box_link_->box_state(),
+                 (int)box_link_->landing_request_accepted());
+    transition(PrecLandState::FALLBACK);
+    return;
+  }
+
+  RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                       "WAIT_BOX_READY: box_state=%u (want 7), accepted=%d, %.1f/%.1fs",
+                       box_link_->box_state(), (int)box_link_->landing_request_accepted(),
+                       elapsed, box_ready_timeout_sec_);
 }
 
 void OffboardPreclandController::st_start()

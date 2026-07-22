@@ -61,7 +61,11 @@ def generate_launch_description():
         description='MAVROS FCU URL (e.g. /dev/ttyACM0:57600 for USB Pixhawk)'
     )
 
-
+    rtsp_url_arg = DeclareLaunchArgument(
+        'rtsp_url',
+        default_value='rtsp://192.168.168.16:8554/main.264',
+        description='RTSP URL of the physical camera'
+    )
 
     # ── 1. MAVROS (optional) ────────────────────────────────────────
 
@@ -73,7 +77,12 @@ def generate_launch_description():
         package='precision_landing',
         executable='rtsp_publisher',
         name='siyi_rtsp_publisher',
-        parameters=[rtsp_params_file],
+        parameters=[
+            rtsp_params_file,
+            {
+                'rtsp_url': LaunchConfiguration('rtsp_url'),
+            }
+        ],
         output='screen'
     )
 
@@ -125,6 +134,7 @@ def generate_launch_description():
     return LaunchDescription([
         enable_mavros_arg,
         fcu_url_arg,
+        rtsp_url_arg,
         mavros_launch,
         rtsp_node,
         tracker_node,

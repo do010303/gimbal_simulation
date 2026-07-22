@@ -50,6 +50,30 @@ def generate_launch_description():
         description='MAVROS FCU URL (e.g. /dev/ttyACM0:57600 for USB Pixhawk)'
     )
 
+    rtsp_url_arg = DeclareLaunchArgument(
+        'rtsp_url',
+        default_value='rtsp://192.168.168.16:8554/main.264',
+        description='RTSP URL of the physical camera'
+    )
+
+    marker_size_arg = DeclareLaunchArgument(
+        'marker_size',
+        default_value='0.50',
+        description='Physical size of the outermost ArUco marker in meters'
+    )
+
+    image_width_arg = DeclareLaunchArgument(
+        'image_width',
+        default_value='1280',
+        description='Width of the image published to ROS 2'
+    )
+
+    image_height_arg = DeclareLaunchArgument(
+        'image_height',
+        default_value='720',
+        description='Height of the image published to ROS 2'
+    )
+
     enable_csv_logger_arg = DeclareLaunchArgument(
         'enable_csv_logger',
         default_value='false',
@@ -123,7 +147,14 @@ def generate_launch_description():
         package='precision_landing',
         executable='rtsp_publisher',
         name='siyi_rtsp_publisher',
-        parameters=[rtsp_params_file],
+        parameters=[
+            rtsp_params_file,
+            {
+                'rtsp_url': LaunchConfiguration('rtsp_url'),
+                'image_width': LaunchConfiguration('image_width'),
+                'image_height': LaunchConfiguration('image_height'),
+            }
+        ],
         output='screen'
     )
 
@@ -141,6 +172,7 @@ def generate_launch_description():
                     'config',
                     'custom_fractal.yml'
                 ),
+                'marker_size': LaunchConfiguration('marker_size'),
                 'use_sim_time': False,
             }
         ],
@@ -177,6 +209,10 @@ def generate_launch_description():
     return LaunchDescription([
         enable_mavros_arg,
         fcu_url_arg,
+        rtsp_url_arg,
+        marker_size_arg,
+        image_width_arg,
+        image_height_arg,
         enable_csv_logger_arg,
         logger_expected_distance_cm_arg,
         logger_trial_label_arg,

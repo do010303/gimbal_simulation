@@ -84,10 +84,21 @@
       <elevation>0</elevation>
     </spherical_coordinates>
 
-    <include>
-      <uri>model://dib_box_landing_pad</uri>
-      <name>landing_box_fractal_aruco</name>
-      <pose>4.0 -3.5 0 0 0 0</pose>
-    </include>
+    <!-- M3.5: the static dib_box_landing_pad is REMOVED on purpose.
+         The fractal marker now lives on the articulated box_simulation model
+         (box.xacro), spawned into this world by
+         box_simulation/launch/box_spawn_only.launch.py.
+
+         Leaving the pad here would put TWO identical fractal markers in the
+         same world; the tracker would lock onto whichever is clearer and the
+         drone would land on the static pad instead of inside the box, while
+         every log and FSM trace still looked correct. That failure is very
+         hard to diagnose, hence the deliberate removal.
+
+         To restore the pre-M3.5 standalone pad, re-add:
+           <include><uri>model://dib_box_landing_pad</uri>
+             <name>landing_box_fractal_aruco</name>
+             <pose>4.0 -3.5 0 0 0 0</pose></include> -->
+
   </world>
 </sdf>

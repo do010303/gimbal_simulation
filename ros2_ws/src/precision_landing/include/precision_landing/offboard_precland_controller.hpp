@@ -27,7 +27,9 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <dib_msgs/msg/box_telemetry.hpp>
+#include "precision_landing/box_link.hpp"
 
 namespace precision_landing
 {
@@ -37,6 +39,8 @@ enum class PrecLandState
   IDLE,
   FLIGHT_IN_PROGRESS,
   GOTO_BOX,
+  PRELANDING_CHECK,   // M3: sensor/gimbal readiness gate before talking to the box
+  WAIT_BOX_READY,     // M3: REQUEST_LANDING sent, waiting for WAITING_FOR_LANDING(7)
   START,
   HORIZONTAL_APPROACH,
   DESCEND_ABOVE_TARGET,
@@ -77,6 +81,7 @@ private:
   void on_target(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void on_box_telemetry(const dib_msgs::msg::BoxTelemetry::SharedPtr msg);
   void on_gps_position(const sensor_msgs::msg::NavSatFix::SharedPtr msg);
+  void on_camera_info(const sensor_msgs::msg::CameraInfo::SharedPtr msg);  // M3
 
   // --- Main Loop and FSM Tick ---
   void control_loop();
@@ -87,6 +92,8 @@ private:
   void st_idle();
   void st_flight_in_progress();
   void st_goto_box();
+  void st_prelanding_check();   // M3
+  void st_wait_box_ready();     // M3
   void st_start();
   void st_horizontal_approach();
   void st_descend_above_target();
@@ -104,6 +111,9 @@ private:
   void pull_waypoints_immediately();
   void transition(PrecLandState new_state);
   bool can_transition(PrecLandState from, PrecLandState to);
+  /// M3: reset the visual-landing trackers before entering START. Shared by
+  /// every path into START so they cannot drift apart.
+  void init_visual_landing();
   void set_glare_comp(bool active);
 
   // --- Math and Frame Helpers ---
@@ -154,6 +164,11 @@ private:
   double goto_box_alt_;
   double goto_box_arrival_radius_;
   std::string box_telemetry_topic_;
+  // M3 - box handshake
+  int box_id_;                     // builds /b<box_id>/cmd and the telemetry topic
+  int drone_id_;                   // agent_id = drone_id*10 + AGENT_ROLE_DRONE(2)
+  double prelanding_timeout_sec_;  // PRELANDING_CHECK -> FALLBACK
+  double box_ready_timeout_sec_;   // WAIT_BOX_READY  -> FALLBACK
 
   // Tunable Controller Constants
   int ctrl_hz_;
@@ -288,6 +303,13 @@ private:
   bool gimbal_configured_{false};
   bool offboard_activated_{false};
 
+  // --- M3: box handshake ---
+  std::unique_ptr<BoxLink> box_link_;
+  std::optional<double> prelanding_start_;   // entry time of PRELANDING_CHECK
+  std::optional<double> wait_box_start_;     // entry time of WAIT_BOX_READY
+  Vector3 handshake_hold_;                   // position held while handshaking
+  double last_camera_info_time_{0.0};        // liveness of the camera pipeline
+
   // --- Publishers ---
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_sp_;
   rclcpp::Publisher<mavros_msgs::msg::PositionTarget>::SharedPtr pub_sp_raw_;
@@ -309,6 +331,7 @@ private:
   rclcpp::Subscription<mavros_msgs::msg::WaypointList>::SharedPtr sub_waypoints_;
   rclcpp::Subscription<dib_msgs::msg::BoxTelemetry>::SharedPtr sub_box_telemetry_;
   rclcpp::Subscription<sensor_msgs::msg::NavSatFix>::SharedPtr sub_gps_position_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr sub_camera_info_;  // M3
 
   // --- Service Clients ---
   rclcpp::Client<mavros_msgs::srv::SetMode>::SharedPtr set_mode_client_;

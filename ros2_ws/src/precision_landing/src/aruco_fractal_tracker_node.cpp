@@ -68,10 +68,14 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
   const auto box_telemetry_topic = this->get_parameter("box_telemetry_topic").as_string();
 
   // Glare compensation parameters
+  this->declare_parameter<bool>("enable_glare_compensation", false);
+  this->declare_parameter<bool>("enable_shadow_compensation", false);
   this->declare_parameter<double>("glare_gamma", 0.4);
   this->declare_parameter<int>("clahe_clip_limit", 3);
   this->declare_parameter<int>("clahe_tile_size", 8);
 
+  enable_glare_compensation_ = this->get_parameter("enable_glare_compensation").as_bool();
+  enable_shadow_compensation_ = this->get_parameter("enable_shadow_compensation").as_bool();
   glare_gamma_ = this->get_parameter("glare_gamma").as_double();
   clahe_clip_limit_ = this->get_parameter("clahe_clip_limit").as_int();
   clahe_tile_size_ = this->get_parameter("clahe_tile_size").as_int();
@@ -107,9 +111,9 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
     });
 
   image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-    "image_input_topic", 10, std::bind(&ArucoFractalTracker::imageCallback, this, std::placeholders::_1));
+    "image_input_topic", 1, std::bind(&ArucoFractalTracker::imageCallback, this, std::placeholders::_1));
 
-  image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("image_output_topic", 10);
+  image_pub_ = this->create_publisher<sensor_msgs::msg::Image>("image_output_topic", 1);
 
   marker_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("poses_output_topic", 10);
   target_pub_ = this->create_publisher<dib_msgs::msg::LandingTarget6D>("target_output_topic", 10);
@@ -121,6 +125,12 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
     "/mavros/local_position/pose", pose_qos,
     [this](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
       last_uav_pose_ = msg;
+      const double t = rclcpp::Time(msg->header.stamp).seconds();
+      uav_pose_history_.emplace_back(t, msg);
+      while (!uav_pose_history_.empty() &&
+             (t - uav_pose_history_.front().first) > kPoseHistorySec) {
+        uav_pose_history_.pop_front();
+      }
     });
 
   lander_state_sub_ = this->create_subscription<std_msgs::msg::String>(
@@ -143,6 +153,7 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
   last_pose_failed_log_ = this->get_clock()->now();
   last_latency_log_ = this->get_clock()->now();
   last_fps_time_ = this->get_clock()->now();
+  last_valid_pose_time_ = this->get_clock()->now();
 
   getSystemCPUStats(last_sys_idle_, last_sys_total_);
   getProcessCPUStats(last_proc_ticks_);
@@ -240,6 +251,41 @@ void ArucoFractalTracker::cameraInfoCallback(const sensor_msgs::msg::CameraInfo:
 }
 
 
+geometry_msgs::msg::PoseStamped::SharedPtr ArucoFractalTracker::poseAt(double stamp)
+{
+  // Pick the sample closest to the image timestamp. Falls back to the newest
+  // pose when the history is empty or the image carries no usable stamp.
+  if (uav_pose_history_.empty()) {
+    return last_uav_pose_;
+  }
+  if (stamp <= 0.0) {
+    return last_uav_pose_;
+  }
+
+  // CLOCK-DOMAIN GUARD. The tracker runs with use_sim_time:=true (gz image
+  // stamps are sim time) but MAVROS is normally launched WITHOUT use_sim_time,
+  // so /mavros/local_position/pose carries wall-clock stamps. Those two are not
+  // comparable: differencing them would make every sample look ~1.7e9 s away
+  // and this function would return the OLDEST pose in the buffer -- worse than
+  // simply using the newest. Detect that and fall back cleanly.
+  if (std::abs(uav_pose_history_.back().first - stamp) > kPoseHistorySec) {
+    last_overlay_pose_skew_s_ = -1.0;   // sentinel: clocks not comparable
+    return last_uav_pose_;
+  }
+
+  geometry_msgs::msg::PoseStamped::SharedPtr best = uav_pose_history_.back().second;
+  double best_dt = std::abs(uav_pose_history_.back().first - stamp);
+  for (const auto & [t, pose] : uav_pose_history_) {
+    const double dt = std::abs(t - stamp);
+    if (dt < best_dt) {
+      best_dt = dt;
+      best = pose;
+    }
+  }
+  last_overlay_pose_skew_s_ = best_dt;
+  return best;
+}
+
 void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr msg)
 {
   const auto callback_start = std::chrono::steady_clock::now();
@@ -295,17 +341,28 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
   }
 
   cv::cvtColor(cv_ptr->image, gray, cv::COLOR_BGR2GRAY);
-
+  
   // Log mean brightness for tuning (once per second/FPS cycle)
   double mean_brightness = cv::mean(gray)[0];
   if (frame_count_ % static_cast<size_t>(std::max(1.0, current_fps_)) == 0) {
-    RCLCPP_INFO(this->get_logger(), "Image mean brightness: %.1f | Glare comp: %s",
-      mean_brightness, enable_glare_compensation_ ? "ACTIVE" : "OFF");
+    RCLCPP_INFO(this->get_logger(), "Image mean brightness: %.1f | Glare comp: %s | Shadow comp: %s",
+      mean_brightness, enable_glare_compensation_ ? "ACTIVE" : "OFF",
+      enable_shadow_compensation_ ? "ACTIVE" : "OFF");
   }
 
   cv::Mat detection_input = gray;
-  // Glare compensation temporarily disabled to match remote
   glare_active_ = false;
+  if (enable_shadow_compensation_)
+  {
+    cv::Mat blurred;
+    cv::blur(gray, blurred, cv::Size(101, 101));
+    cv::divide(gray, blurred, detection_input, 127.0);
+  }
+  if (enable_glare_compensation_)
+  {
+    detection_input = preprocessForGlare(detection_input);
+    glare_active_ = true;
+  }
 
   if (detector_.detect(detection_input))
   {
@@ -489,6 +546,14 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
     drawLatencyOverlay(cv_ptr->image);
   }
 
+  // M3: pick the UAV pose that was true at THIS frame's timestamp. The image
+  // arrives queued behind the gz bridge, so last_uav_pose_ (newest available)
+  // describes a later instant than the picture. During 7b that made the overlay
+  // print UAV U=2.53 next to a MARKER DIST=3.11 measured from the same frame --
+  // 0.75 m apart, ~2 s of descent. Everything drawn below, plus the marker
+  // distance sanity gate further down, now uses this time-matched pose.
+  frame_pose_ = poseAt(rclcpp::Time(msg->header.stamp).seconds());
+
   // Draw the HUD ENU coordinates and Lander State overlay.
   // This is drawn at the bottom-right (X = image.cols - 450) to avoid overlapping
   // with the latency overlay at the bottom-left.
@@ -539,23 +604,40 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
       marker_pose_valid = true;
     }
 
-    if (last_uav_pose_)
+    if (frame_pose_)
     {
-      double uav_x = last_uav_pose_->pose.position.x; // East
-      double uav_y = last_uav_pose_->pose.position.y; // North
-      double uav_z = last_uav_pose_->pose.position.z; // Up
+      double uav_x = frame_pose_->pose.position.x; // East
+      double uav_y = frame_pose_->pose.position.y; // North
+      double uav_z = frame_pose_->pose.position.z; // Up
 
       tf2::Quaternion q(
-        last_uav_pose_->pose.orientation.x,
-        last_uav_pose_->pose.orientation.y,
-        last_uav_pose_->pose.orientation.z,
-        last_uav_pose_->pose.orientation.w
+        frame_pose_->pose.orientation.x,
+        frame_pose_->pose.orientation.y,
+        frame_pose_->pose.orientation.z,
+        frame_pose_->pose.orientation.w
       );
       tf2::Matrix3x3 m(q);
       double roll, pitch, yaw;
       m.getRPY(roll, pitch, yaw); // yaw is ENU
 
-      draw_text(cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f", uav_x, uav_y, uav_z));
+      // Show how well the drawn pose matches the frame. >0.1 s means the
+      // altitude and the marker distance below are NOT from the same instant
+      // and must not be compared against each other.
+      if (last_overlay_pose_skew_s_ < 0.0) {
+        // Clocks not comparable -- the altitude below is the NEWEST pose, not
+        // the one matching this frame, so it must NOT be compared against
+        // MARKER DIST. Launch MAVROS with use_sim_time:=true to fix.
+        draw_text(
+          cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f  (sync N/A: clock mismatch)",
+                     uav_x, uav_y, uav_z),
+          cv::Scalar(0, 0, 255));
+      } else {
+        draw_text(
+          cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f  (sync %.0fms)",
+                     uav_x, uav_y, uav_z, last_overlay_pose_skew_s_ * 1000.0),
+          last_overlay_pose_skew_s_ > 0.1 ? cv::Scalar(0, 160, 255)
+                                          : cv::Scalar(255, 255, 255));
+      }
       draw_text(cv::format("UAV YAW: %.1f deg", yaw * 180.0 / 3.141592653589793));
       if (last_box_yaw_valid_)
       {
@@ -667,9 +749,28 @@ bool ArucoFractalTracker::acceptPose(
   {
     reject_reason = "z_out_of_range";
   }
-  else if (have_last_tvec_ && (tvec - last_tvec_).length() > max_pose_jump_m_)
+  else if (frame_pose_ && (std::abs(tvec.z() - frame_pose_->pose.position.z) > std::max(3.0, 0.5 * frame_pose_->pose.position.z)))
   {
-    reject_reason = "pose_jump";
+    reject_reason = "altitude_mismatch";
+  }
+  else if (have_last_tvec_)
+  {
+    auto now = this->get_clock()->now();
+    double elapsed_sec = (now - last_valid_pose_time_).seconds();
+    elapsed_sec = std::max(0.0, elapsed_sec);
+
+    if (elapsed_sec > 5.0)
+    {
+      have_last_tvec_ = false;
+    }
+    else
+    {
+      double dynamic_jump_threshold = max_pose_jump_m_ + 3.0 * elapsed_sec;
+      if ((tvec - last_tvec_).length() > dynamic_jump_threshold)
+      {
+        reject_reason = "pose_jump";
+      }
+    }
   }
 
   const bool accepted = reject_reason.empty();
@@ -679,6 +780,7 @@ bool ArucoFractalTracker::acceptPose(
     bad_frame_count_ = 0;
     last_tvec_ = tvec;
     have_last_tvec_ = true;
+    last_valid_pose_time_ = this->get_clock()->now();
     tracking_state_ =
       good_frame_count_ >= acquire_good_frames_
         ? dib_msgs::msg::LandingTarget6D::TRACKING
@@ -691,7 +793,7 @@ bool ArucoFractalTracker::acceptPose(
     if (bad_frame_count_ >= lost_bad_frames_)
     {
       tracking_state_ = dib_msgs::msg::LandingTarget6D::LOST;
-      have_last_tvec_ = false;
+      // Do not clear have_last_tvec_ immediately to keep it for gating check
     }
     else
     {
@@ -933,8 +1035,20 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
     image, dist_ids_text, cv::Point(margin + 8, panel_top + 5 * line_height),
     font_face, font_scale, dist_ids_color, thickness, cv::LINE_AA);
 
-  std::string glare_text = glare_active_ ? "GLARE COMP: ACTIVE" : "GLARE COMP: OFF";
-  cv::Scalar glare_color = glare_active_ ? cv::Scalar(0, 255, 255) : cv::Scalar(80, 255, 80);
+  std::string glare_text = "FILTERS: OFF";
+  if (glare_active_ && enable_shadow_compensation_)
+  {
+    glare_text = "GLARE & SHADOW COMP: ACTIVE";
+  }
+  else if (glare_active_)
+  {
+    glare_text = "GLARE COMP: ACTIVE";
+  }
+  else if (enable_shadow_compensation_)
+  {
+    glare_text = "SHADOW COMP: ACTIVE";
+  }
+  cv::Scalar glare_color = (glare_active_ || enable_shadow_compensation_) ? cv::Scalar(0, 255, 255) : cv::Scalar(80, 255, 80);
   cv::putText(
     image, glare_text, cv::Point(margin + 8, panel_top + 6 * line_height),
     font_face, font_scale, glare_color, thickness, cv::LINE_AA);
