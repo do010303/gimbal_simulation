@@ -37,6 +37,29 @@ MavrosToDibTelemetryNode::MavrosToDibTelemetryNode(const rclcpp::NodeOptions & o
   telemetry_qos.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
   telemetry_pub_ = create_publisher<dib_msgs::msg::DroneTelemetry>(telemetry_topic_, telemetry_qos);
 
+  // M3.6. This node stands in for the drone's companion computer, so it must
+  // fall silent when the box cuts dock power -- box_manager's securing
+  // sub-FSM leaves POWER_OFF for DONE (and the box then reaches CHARGING)
+  // only after drone telemetry has been stale for 5 s
+  // (securing_state_manager.cpp:217-220). On real hardware that silence is
+  // free: the computer is off. In SITL MAVROS keeps running, so without this
+  // the box sits in POWER_OFF forever and the cycle never completes.
+  //
+  // box_hardware_adapter publishes the rail state from its
+  // /dock/power_button/cmd handler. Latched, so start order does not matter.
+  drone_power_sub_ = create_subscription<std_msgs::msg::Bool>(
+    "/dock/drone_power", rclcpp::QoS(1).transient_local(),
+    [this](const std_msgs::msg::Bool::SharedPtr msg) {
+      if (msg->data == powered_) {
+        return;
+      }
+      powered_ = msg->data;
+      RCLCPP_INFO(
+        get_logger(), "Dock power %s: %s publishing %s",
+        powered_ ? "ON" : "OFF", powered_ ? "resuming" : "stopping",
+        telemetry_topic_.c_str());
+    });
+
   RCLCPP_INFO(get_logger(),
     "mavros_to_dib_telemetry ready: /mavros/state + /mavros/extended_state -> %s",
     telemetry_topic_.c_str());
@@ -66,6 +89,11 @@ void MavrosToDibTelemetryNode::onExtendedState(const mavros_msgs::msg::ExtendedS
 
 void MavrosToDibTelemetryNode::publishTelemetry()
 {
+  // Powered off by the box: behave like a computer with no power.
+  if (!powered_) {
+    return;
+  }
+
   // Gated on having received at least one of each message so a zero-initialised
   // landed_state (LANDED_STATE_UNDEFINED=0) never reaches box_manager.
   telemetry_msg_.header.stamp = now();

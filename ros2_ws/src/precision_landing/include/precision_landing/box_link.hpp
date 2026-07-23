@@ -68,10 +68,43 @@ public:
    */
   bool is_ready() const;
 
-  /// Clear the ready latch and the request guard for a fresh landing attempt.
+  /**
+   * M3.6. Send BoxCmd{TURN_OFF_DRONE} once the drone is down and secured, so
+   * the box can finish SECURING_DRONE and move on to CHARGING.
+   *
+   * Idempotent and retried like request_landing(), and additionally GATED on
+   * box_state == SECURING_DRONE: box_state_manager.cpp only looks at this
+   * command in that state, so sending it earlier is silently dropped.
+   *
+   * The box stores it as a sticky flag (request_poweroff) that its securing
+   * sub-FSM consumes when it reaches WAITING_DRONE_REQUEST_POWER_OFF, which is
+   * ~35 s after touchdown (clamps then lid must close first). So the command
+   * may be sent well before it is acted on; that is expected.
+   */
+  void request_power_off();
+
+  /**
+   * True once the box has left SECURING_DRONE for CHARGING.
+   *
+   * This is the ONLY reliable confirmation available. The BoxCmd service
+   * response cannot be used: box_state_manager::box_cmd_callback() sets
+   * response->success = true unconditionally on its first line and then hands
+   * the work to a detached thread, so the reply is sent before anything has
+   * been evaluated and carries no information. Telemetry is the real contract.
+   */
+  bool power_off_confirmed() const {return power_off_confirmed_;}
+
+  /// Clear the ready latch and the request guards for a fresh landing attempt.
   void reset();
 
-  /// True once the box has answered our REQUEST_LANDING with success=true.
+  /**
+   * True once the box replied success=true to REQUEST_LANDING.
+   *
+   * Useful against a mock box; against the real box_state_manager this is
+   * always true for the reason described on power_off_confirmed(). Treat it as
+   * "the service answered", not as "the box agreed". Real acceptance shows up
+   * as the box leaving EMPTY, which is_ready() ends up latching.
+   */
   bool landing_request_accepted() const {return request_accepted_;}
 
   /// True if a box_state has ever been received.
@@ -97,7 +130,11 @@ private:
   bool request_accepted_{false};
   double last_request_time_{0.0};
 
-  /// Resend REQUEST_LANDING if the box never answered (service was not up yet).
+  bool power_off_sent_{false};
+  bool power_off_confirmed_{false};
+  double last_power_off_time_{0.0};
+
+  /// Resend a command if the box never answered (service was not up yet).
   static constexpr double REQUEST_RETRY_SEC = 3.0;
 
   double now_sec() const;

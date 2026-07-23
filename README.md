@@ -650,12 +650,13 @@ ros2 topic echo /siyi/fractal_pose
 
 ---
 
-## 4. Drone-in-a-Box — Pipeline Đầy Đủ (M3.5)
+## 4. Drone-in-a-Box — Pipeline Đầy Đủ (M3.5 + M3.6)
 
 Toàn bộ hệ thống trong **một world Gazebo duy nhất**: drone `x500_gimbal` bắt
 tay với box qua service `dib_msgs`, box thật (khớp nắp + kẹp, điều khiển bằng
 ros2_control) mở nắp đón, drone hạ cánh bằng thị giác xuống marker fractal nằm
-trên sàn box, rồi box kẹp giữ drone.
+trên sàn box, box kẹp giữ drone, drone xin tắt nguồn, và box chuyển sang sạc —
+vòng đời `EMPTY → … → CHARGING` khép trọn.
 
 ```
 box_manager  ──service──▶  box_hardware_adapter  ──JointTrajectory──▶  ros2_control
@@ -675,6 +676,14 @@ drone: MAVROS ──▶ mavros_to_dib_telemetry ──▶ box_manager
 | `box_hardware_adapter` | Dịch service của `box_manager` thành `JointTrajectory` cho ros2_control, và dịch `/joint_states` ngược lại thành `/lid/status`, `/clamp/status` |
 | `box_simulation` | Model box khớp động (nắp, 2 cặp kẹp) |
 | `dib_box_marker` | Marker fractal 0.50 m đặt trên sàn box |
+
+Ba launch file dùng để chạy, tất cả nằm trong `precision_landing`:
+
+| Launch | Khởi động gì |
+|---|---|
+| `sitl_precland.launch.py` | gz bridge + tracker + `offboard_precland_controller` |
+| `sitl_mavros.launch.py` | MAVROS **có `use_sim_time`** (xem 4.6) |
+| `dib_bringup.launch.py` | adapter + FSM box + cầu telemetry + fixture GPS |
 
 ### 4.2. Chuẩn bị
 
@@ -778,19 +787,62 @@ ros2 topic pub -r 2 -t 6 /joint_lid_controller/joint_trajectory \
 
 Nhìn vào lòng box: phải thấy ô marker fractal đen-trắng trên mặt sàn.
 
-### 4.6. Giai đoạn B — vòng kín (thêm 7 terminal)
+### 4.6. Giai đoạn B — vòng kín (thêm 3 terminal)
 
-Giữ nguyên Terminal 1 và 2.
+Giữ nguyên Terminal 1 và 2. Tổng cộng **5 terminal**, không phải 9: bốn node
+phía box đã gom vào một launch.
 
-| T | Lệnh |
-|---|---|
-| 3 | `ros2 launch precision_landing sitl_precland.launch.py` |
-| 4 | `ros2 launch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557" use_sim_time:=true` |
-| 5 | `ros2 run box_hardware_adapter box_hardware_adapter_node` |
-| 6 | `ros2 run box_manager box_state_manager_node --ros-args --params-file ~/PX4/examples/box_manager/config/box_state_manager.yaml` |
-| 7 | fixture GPS cho box — xem 4.7 |
-| 8 | `ros2 run precision_landing mavros_to_dib_telemetry --ros-args -p drone_id:=1` |
-| 9 | `ros2 run rqt_image_view rqt_image_view /precision_landing/debug_image` |
+| T | Lệnh | Vai trò |
+|---|---|---|
+| 3 | `ros2 launch precision_landing sitl_precland.launch.py` | bridge + tracker + controller |
+| 4 | `ros2 launch precision_landing sitl_mavros.launch.py` | MAVROS (đồng hồ mô phỏng) |
+| 5 | `ros2 launch precision_landing dib_bringup.launch.py` | **cả 4 node phía box trong một terminal** |
+
+`dib_bringup.launch.py` gom `box_hardware_adapter_node`, `box_state_manager_node`,
+`mavros_to_dib_telemetry` và fixture GPS. Không cần thứ tự khởi động: service
+được chờ kiểu lazy, mọi subscription đều fire-and-forget.
+
+```bash
+# tắt fixture GPS khi chạy trên phần cứng thật (box có GPS thật)
+ros2 launch precision_landing dib_bringup.launch.py use_gps_fixture:=false
+```
+
+Giám sát (mở khi cần, không phải lúc nào cũng cần):
+```bash
+ros2 run rqt_image_view rqt_image_view /precision_landing/debug_image
+ros2 topic echo --field data /landing/pose_sync_ms     # ms; -1 = lệch đồng hồ
+```
+
+> **Terminal 4 dùng `sitl_mavros.launch.py`, KHÔNG dùng `mavros px4.launch`.**
+> `px4.launch` không khai báo argument `use_sim_time`, nên truyền
+> `use_sim_time:=true` vào nó bị **bỏ qua trong im lặng**: MAVROS chạy đồng hồ
+> tường trong khi ảnh camera mang dấu thời gian mô phỏng. Tracker phát hiện
+> được và vẽ đỏ `sync N/A: clock mismatch` — khi đó độ cao in trên HUD là pose
+> mới nhất, không phải pose ứng với khung hình đang xem.
+> Kiểm nhanh sau khi khởi động: `ros2 param get /mavros use_sim_time` → `True`.
+
+**Kiểm 3 thứ trước khi bay** — làm lúc này tốn 10 giây, phát hiện sau khi bay
+tốn cả một lượt chạy:
+
+```bash
+# 1. Đồng bộ đồng hồ — tiêu chí THẬT, đo trực tiếp trên dữ liệu
+ros2 topic echo --once --field data /landing/pose_sync_ms   # số dương (vd 40.0), KHÔNG phải -1.0
+
+# 2. MAVROS dùng đồng hồ mô phỏng
+ros2 param get /mavros/mavros_node use_sim_time             # Boolean value is: True
+
+# 3. Bốn controller của box
+ros2 control list_controllers                               # 4 dòng, tất cả 'active'
+```
+
+> **Node là `/mavros/mavros_node`, không phải `/mavros`.** MAVROS chạy dưới
+> namespace `mavros` và tách thành hàng chục node plugin
+> (`/mavros/local_position`, `/mavros/imu`, …); `/mavros` tự nó không tồn tại và
+> `ros2 param get /mavros ...` trả về `Node not found` — đó là sai tên node, chứ
+> không phải MAVROS hỏng.
+>
+> Trong ba lệnh trên thì **lệnh 1 mới là bằng chứng**: nó đo độ lệch thật giữa
+> dấu thời gian ảnh và pose. Lệnh 2 chỉ xác nhận nguyên nhân.
 
 Bay, trong `pxh>` của Terminal 1:
 ```
@@ -855,6 +907,64 @@ Adapter điều khiển đúng cơ cấu box:
 /lid/cmd   command=0 -> lid target 0.000 rad     (đóng nắp)
 ```
 
+Vòng đời khép trọn tới `CHARGING` — **sau khi drone chạm đất còn khoảng 35-40
+giây nữa**, đừng tắt sớm:
+```
+offboard_precland: LANDING COMPLETE — disarmed. Waiting for box to secure and charge.
+box_state_manager: Box in SECURING_DRONE state, securing state: 5   (kẹp + đóng nắp)
+offboard_precland: BoxLink: sending TURN_OFF_DRONE to b2 (agent_id=12)
+box_hardware_adapter: /dock/power_button/cmd command=0 -> drone power OFF
+mavros_to_dib_telemetry: Dock power OFF: stopping publishing d1/telemetry
+box_state_manager: Box in CHARGING state
+offboard_precland: Box reached CHARGING — drone-in-a-box cycle complete
+```
+`TURN_OFF_DRONE` được gửi lặp lại mỗi 3 giây là **đúng thiết kế**: lệnh
+idempotent, box giữ nó như một cờ dính và chỉ tiêu thụ khi kẹp/nắp đã đóng xong.
+
+> **Vì sao phải giả lập cú cắt điện.** `box_manager` rời `POWER_OFF` sang `DONE`
+> (rồi mới `CHARGING`) khi telemetry drone **im lặng quá 5 giây**
+> (`securing_state_manager.cpp:217-220`). Trên phần cứng thật, box cắt nguồn
+> nên máy tính đồng hành tắt và sự im lặng đó là miễn phí. Trong SITL, MAVROS
+> chạy mãi, nên `box_hardware_adapter` publish `/dock/drone_power` và
+> `mavros_to_dib_telemetry` ngừng phát khi nhận `false`. Thiếu mắt xích này thì
+> box kẹt ở `POWER_OFF` vĩnh viễn — drone vẫn hạ cánh và bị kẹp đúng, nhưng
+> vòng đời không bao giờ khép.
+
+### Đọc số latency cho đúng (quan trọng khi chạy HITL)
+
+`E2E latency (image -> debug)` được tính là `now() − image_stamp`. Phép trừ đó
+**chỉ là độ trễ khi hai đầu dùng chung một đồng hồ**. Nếu camera đóng dấu thời
+gian bằng đồng hồ riêng, hoặc NTP giữa camera và máy tính nhúng lệch nhau, thì
+cùng phép trừ ấy cho ra **độ lệch đồng hồ** — và nó trông y hệt một độ trễ khổng
+lồ. Đây chính là lý do các lần chạy HITL báo e2e latency rất lớn trên máy nhúng
+trong khi `Detector processing` (đo bằng `steady_clock`, miễn nhiễm với lệch
+đồng hồ) chỉ vài mili giây.
+
+Phân biệt bằng **hình dạng**, không phải độ lớn:
+
+| | sàn (floor) | dao động (jitter) |
+|---|---|---|
+| Độ trễ thật | nhỏ | thấy rõ, thay đổi từng khung |
+| Lệch đồng hồ | lớn | gần như bằng 0 |
+
+Tracker theo dõi sàn trượt 10 giây và tự gắn cờ:
+```
+E2E latency (image -> debug): 2480.0 ms  [CLOCK OFFSET? floor=2478 jitter=2]
+```
+Kèm cảnh báo trong log, giãn 10 giây một lần. Thấy cờ này thì **đừng đi tối ưu
+hiệu năng** — hãy đồng bộ thời gian giữa camera và máy tính trước.
+
+Cửa sổ chấp nhận cũng đã siết từ **60 giây** xuống **2 giây**. Ngưỡng cũ không
+phải là kiểm tra tính hợp lý: mọi độ lệch dưới một phút đều lọt qua và được hiển
+thị như latency.
+
+**Đọc HUD cho đúng.** `UAV ENU U` và `MARKER DIST` **không bằng nhau**, và đó là
+đúng: `U` là độ cao so với **điểm cất cánh**, còn marker giờ nằm **trên nóc box,
+cao 0.64 m**. Kỳ vọng `U ≈ MARKER DIST + 0.64`. Trước M3.5 marker nằm bẹp dưới
+đất nên hai số trùng nhau — bản ghi cũ vì thế gây hiểu nhầm. Số so được với
+`MARKER DIST` là `alt` trong dòng `DESCEND` của controller (`pos_enu_.z` trừ cao
+độ pad), không phải `alt` trong dòng `[YAW-3D]` (`pos_enu_.z` thô).
+
 Kết quả tham chiếu của lần chạy đạt: **sai số hạ cánh 4.0 cm**
 (`final_xy=(2.54, −2.56)` so với marker `(2.5129, −2.5896)`), độ cao lúc chạm
 `0.602–0.628 m` khớp cao độ sàn box `0.63673 m`.
@@ -867,7 +977,28 @@ Marker fractal tự rụng tầng theo độ cao, đúng thiết kế — `ids=[
 cao, `ids=[1,2]` khi xuống ~0.65 m (tầng ngoài 0.50 m ra khỏi khung hình, hai
 tầng trong 0.125 m và 0.031 m tiếp quản).
 
-### 4.9. Giới hạn đã biết
+### 4.9. Chỉnh hướng đậu của drone (`marker_yaw`)
+
+Tracker suy ra một góc yaw từ marker và controller khoá drone vào góc đó — nên
+**xoay marker là xoay hướng drone đậu**.
+
+Mặc định `marker_yaw = 1.5708` (90°). Đổi được ngay trên dòng lệnh, **chỉ cần
+khởi động lại Terminal 2, không phải khởi động lại PX4**:
+
+```bash
+ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=1.5708
+```
+
+Thử `0.0` / `1.5708` / `3.1416` / `-1.5708`, giữ giá trị nào đậu drone thẳng
+hàng giữa hai cặp kẹp.
+
+> Tiêu chí là **hai cặp kẹp**, không phải màu nắp. Kẹp đóng theo world Y (cách
+> nhau 0.774 m) và world X (0.782 m), nên thân drone phải nằm dọc theo hai trục
+> đó. Ở `marker_yaw = 0` hệ marker trùng world ENU, drone đậu ở heading 0
+> (hướng Đông) và chúc mũi vào nắp — nhìn thì biết là sai, nhưng chọn theo mắt
+> nhìn nắp vẫn có thể lệch 90° so với kẹp.
+
+### 4.10. Giới hạn đã biết
 
 `box_manager` dừng ở `SECURING_DRONE`, securing state 5, lặp
 `Waiting for drone to request power off`. Chuỗi kẹp/nắp đã hoàn tất; box chờ

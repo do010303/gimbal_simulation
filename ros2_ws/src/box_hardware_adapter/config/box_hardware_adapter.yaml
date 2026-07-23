@@ -1,0 +1,16 @@
+/box_hardware_adapter:
+  ros__parameters:
+    # Lid joint (box.xacro: lid_left_joint, revolute, 0..1.57 rad)
+    lid_open_rad: 1.57          # fully open
+    lid_closed_rad: 0.0         # fully closed
+    lid_settle_eps_rad: 0.05    # ~3 deg band counted as CLOSED/OPENED (settled)
+
+    # Clamp joints (box.xacro: clamp_h_1_joint / clamp_v_1_joint, prismatic, 0..0.2 m)
+    clamp_open_m: 0.0           # fully open (retracted)
+    clamp_closed_m: 0.2         # fully closed (clamping the drone)
+    mm_per_metre: 1000.0        # ClampStatus reported in mm: round(m * 1000) -> 0..200
+                                # box_state_manager.yaml pos_clamp_*_close must match (=200)
+
+    # Trajectory + status timing
+    traj_time_from_start_s: 2.0 # how long the JTC takes to reach a commanded goal
+    status_stub_period_s: 0.2   # re-publish period for stubbed charge/cooling status

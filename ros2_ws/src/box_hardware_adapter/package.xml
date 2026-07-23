@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>box_hardware_adapter</name>
+  <version>0.0.0</version>
+  <description>
+    Bridges box_manager's dib_msgs service/topic contract to box_simulation's
+    ros2_control (JointTrajectoryController) topics. Serves lid/clamp/power/
+    charge/cooling command services and publishes lid/clamp/charge/cooling
+    status derived from /joint_states. See README.md for the unit-mapping and
+    the stubbed (non-physical) charge/cooling behaviour.
+  </description>
+  <maintainer email="winner132003@gmail.com">ducanh</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>dib_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

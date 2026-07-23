@@ -107,6 +107,7 @@ ament_target_dependencies(mavros_to_dib_telemetry_node
   rclcpp
   dib_msgs
   mavros_msgs
+  std_msgs
   rclcpp_components
 )
 rclcpp_components_register_nodes(mavros_to_dib_telemetry_node "precision_landing::MavrosToDibTelemetryNode")

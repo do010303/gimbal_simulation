@@ -7,6 +7,7 @@
 #include <mavros_msgs/msg/state.hpp>
 #include <mavros_msgs/msg/extended_state.hpp>
 #include <dib_msgs/msg/drone_telemetry.hpp>
+#include <std_msgs/msg/bool.hpp>
 
 namespace precision_landing
 {
@@ -46,7 +47,12 @@ private:
 
   dib_msgs::msg::DroneTelemetry telemetry_msg_;
   bool have_state_{false};
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr drone_power_sub_;
+
   bool have_ext_state_{false};
+
+  /// M3.6: dock power rail. False = box cut power, so stop publishing.
+  bool powered_{true};
 };
 
 }  // namespace precision_landing

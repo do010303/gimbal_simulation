@@ -125,3 +125,9 @@
     # WAIT_BOX_READY -> FALLBACK if box never reaches WAITING_FOR_LANDING(7).
     # Must cover the box's full lid-open + clamp-open sequence in Gazebo.
     box_ready_timeout_sec: 30.0
+    # M3.6. DONE -> IDLE even if the box never reports CHARGING.
+    # After touchdown the box still has to close both clamp pairs and the lid
+    # before its securing sub-FSM looks at TURN_OFF_DRONE; that took ~35 s in
+    # Gazebo, so this leaves a wide margin. Hitting this timeout is a warning,
+    # not a failure: the drone is already down and disarmed.
+    power_off_timeout_sec: 90.0

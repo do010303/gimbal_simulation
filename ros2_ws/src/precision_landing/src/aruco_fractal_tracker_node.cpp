@@ -117,6 +117,7 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
 
   marker_pose_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("poses_output_topic", 10);
   target_pub_ = this->create_publisher<dib_msgs::msg::LandingTarget6D>("target_output_topic", 10);
+  pose_sync_pub_ = this->create_publisher<std_msgs::msg::Float32>("/landing/pose_sync_ms", 10);
 
   rclcpp::QoS pose_qos(1);
   pose_qos.best_effort();
@@ -534,10 +535,43 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
   {
     const double source_latency_ms = (this->get_clock()->now() - input_stamp).seconds() * 1000.0;
     // Reject incompatible clock domains instead of displaying a misleading value.
-    if (source_latency_ms >= -1.0 && source_latency_ms < 60000.0)
+    //
+    // The window used to be 60 s, which is not a plausibility check at all: any
+    // clock offset under a minute was accepted and shown as "latency". 2 s is
+    // still generous for a camera pipeline -- beyond it the number is a clock
+    // problem, not a transport delay, and calling it latency sends whoever is
+    // debugging in the wrong direction.
+    if (source_latency_ms >= -1.0 && source_latency_ms < 2000.0)
     {
       last_source_latency_ms_ = source_latency_ms;
       source_latency_valid_ = true;
+
+      // Rolling minimum over kLatencyFloorWinSec. See the header for why the
+      // floor and the jitter mean different things.
+      const double t_now = this->get_clock()->now().seconds();
+      latency_floor_win_.emplace_back(t_now, source_latency_ms);
+      while (!latency_floor_win_.empty() &&
+             (t_now - latency_floor_win_.front().first) > kLatencyFloorWinSec) {
+        latency_floor_win_.pop_front();
+      }
+      double floor_ms = source_latency_ms;
+      for (const auto & [t, v] : latency_floor_win_) {
+        (void)t;
+        floor_ms = std::min(floor_ms, v);
+      }
+      latency_floor_ms_ = floor_ms;
+      latency_jitter_ms_ = source_latency_ms - floor_ms;
+      latency_floor_valid_ = latency_floor_win_.size() > 5;
+
+      if (latency_floor_valid_ && latency_floor_ms_ > kClockOffsetSuspectMs) {
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 10000,
+          "Source latency floor is %.0f ms with only %.0f ms of jitter -- that "
+          "shape is a CAMERA/NODE CLOCK OFFSET, not transport delay. Real "
+          "processing is %.1f ms. Check time sync between the camera and this "
+          "computer before treating this as a performance problem.",
+          latency_floor_ms_, latency_jitter_ms_, last_processing_latency_ms_);
+      }
     }
   }
 
@@ -552,6 +586,9 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
   // print UAV U=2.53 next to a MARKER DIST=3.11 measured from the same frame --
   // 0.75 m apart, ~2 s of descent. Everything drawn below, plus the marker
   // distance sanity gate further down, now uses this time-matched pose.
+  //
+  // This only works if MAVROS shares the simulation clock; see the clock note
+  // in the HUD block below.
   frame_pose_ = poseAt(rclcpp::Time(msg->header.stamp).seconds());
 
   // Draw the HUD ENU coordinates and Lander State overlay.
@@ -564,7 +601,10 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
     const int line_h = 22;
     const int margin = 10;
     const int panel_w = 400;
-    const int panel_h = 8 * line_h + 12;
+    // 9 lines: POSE SYNC got its own line (M3.6) -- appended to UAV ENU it
+    // ran to ~60 chars ~= 660 px and was clipped by the 400 px panel, so the
+    // one value the line existed to report was the one you could not read.
+    const int panel_h = 9 * line_h + 12;
     const int panel_top = std::max(0, cv_ptr->image.rows - panel_h - margin);
     const int panel_left = std::max(0, cv_ptr->image.cols - panel_w - margin);
 
@@ -620,23 +660,52 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
       double roll, pitch, yaw;
       m.getRPY(roll, pitch, yaw); // yaw is ENU
 
-      // Show how well the drawn pose matches the frame. >0.1 s means the
-      // altitude and the marker distance below are NOT from the same instant
-      // and must not be compared against each other.
+      // Show how well the drawn pose matches the frame. >0.1 s means U and
+      // MARKER DIST below are NOT from the same instant.
+      //
+      // NOTE (M3.5): even at 0 ms skew these two numbers are NOT equal, and
+      // that is correct. U is height above the TAKEOFF POINT, while MARKER
+      // DIST is measured from the camera to a marker that now sits on top of
+      // the box, 0.64 m off the ground. Expect U ~= MARKER DIST + 0.64.
+      // Before M3.5 the marker lay flat on the ground and the two did match,
+      // so an older reading of this overlay is misleading.
+      draw_text(cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f", uav_x, uav_y, uav_z));
+
       if (last_overlay_pose_skew_s_ < 0.0) {
-        // Clocks not comparable -- the altitude below is the NEWEST pose, not
-        // the one matching this frame, so it must NOT be compared against
-        // MARKER DIST. Launch MAVROS with use_sim_time:=true to fix.
-        draw_text(
-          cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f  (sync N/A: clock mismatch)",
-                     uav_x, uav_y, uav_z),
-          cv::Scalar(0, 0, 255));
+        // Clocks not comparable -- the altitude above is the NEWEST pose, not
+        // the one matching this frame. Start MAVROS from
+        // precision_landing/launch/sitl_mavros.launch.py, which sets
+        // use_sim_time as a real node parameter.
+        // (`ros2 launch mavros px4.launch use_sim_time:=true` does NOT work:
+        //  px4.launch never declares that argument, so it is dropped silently.)
+        draw_text("POSE SYNC: N/A (clock mismatch)", cv::Scalar(0, 0, 255));
       } else {
         draw_text(
-          cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f  (sync %.0fms)",
-                     uav_x, uav_y, uav_z, last_overlay_pose_skew_s_ * 1000.0),
+          cv::format("POSE SYNC: %.0f ms", last_overlay_pose_skew_s_ * 1000.0),
           last_overlay_pose_skew_s_ > 0.1 ? cv::Scalar(0, 160, 255)
                                           : cv::Scalar(255, 255, 255));
+      }
+
+      // Machine-readable copy of the same number, so it can be watched on its
+      // own instead of being hunted for in this node's log stream:
+      //     ros2 topic echo /landing/pose_sync_ms
+      {
+        std_msgs::msg::Float32 sync_msg;
+        sync_msg.data = last_overlay_pose_skew_s_ < 0.0
+          ? -1.0f
+          : static_cast<float>(last_overlay_pose_skew_s_ * 1000.0);
+        pose_sync_pub_->publish(sync_msg);
+      }
+
+      // The mismatch case still gets a log line: it is rare, it means the
+      // overlay numbers cannot be trusted, and it needs an operator action.
+      // The healthy case stays silent -- nothing to say every frame.
+      if (last_overlay_pose_skew_s_ < 0.0) {
+        RCLCPP_WARN_THROTTLE(
+          this->get_logger(), *this->get_clock(), 10000,
+          "Pose/image clock mismatch: MAVROS is not on the simulation clock. "
+          "Start it with `ros2 launch precision_landing sitl_mavros.launch.py` "
+          "and check `ros2 param get /mavros/mavros_node use_sim_time`.");
       }
       draw_text(cv::format("UAV YAW: %.1f deg", yaw * 180.0 / 3.141592653589793));
       if (last_box_yaw_valid_)
@@ -965,7 +1034,14 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   if (source_latency_valid_)
   {
     e2e_text = cv::format("E2E latency (image -> debug): %.1f ms", last_source_latency_ms_);
-    if (last_source_latency_ms_ > latency_warn_ms_)
+    // A large floor with little jitter is a clock offset wearing latency's
+    // clothes. Say so here rather than letting the raw number be believed.
+    if (latency_floor_valid_ && latency_floor_ms_ > kClockOffsetSuspectMs)
+    {
+      e2e_text += cv::format("  [CLOCK OFFSET? floor=%.0f jitter=%.0f]",
+                             latency_floor_ms_, latency_jitter_ms_);
+    }
+    else if (last_source_latency_ms_ > latency_warn_ms_)
     {
       e2e_text += "  [WARN]";
     }

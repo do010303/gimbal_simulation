@@ -82,9 +82,26 @@ SPAWN_Y = -2.0
 MARKER_X = SPAWN_X + 0.0129     # 2.5129
 MARKER_Y = SPAWN_Y - 0.5896     # -2.5896
 MARKER_Z = SPAWN_Z - 0.1456     # 0.63673
-# Spawned unrotated: the model's plane normal is already +z, i.e. facing up at
-# the descending drone. Keep these three numbers in sync with PAD_EAST/PAD_NORTH
-# in docs/m3_box_handshake_test/box_gps_publisher.py.
+# The model's plane normal is already +z, i.e. facing up at the descending
+# drone. Keep these three numbers in sync with PAD_EAST/PAD_NORTH in
+# docs/m3_box_handshake_test/box_gps_publisher.py.
+#
+# --- Marker yaw: this sets the drone's LANDING HEADING -------------------
+# The tracker derives a yaw from the marker and offboard_precland_controller
+# locks the drone onto it, so rotating the marker rotates the parked drone.
+#
+# At yaw = 0 the marker frame equals world ENU, the drone settles at heading 0
+# (facing East) and ends up nose-on to the yellow lid instead of squared up
+# with the box. pi/2 turns it a quarter turn onto the other axis.
+#
+# Override without editing this file -- the box respawns in seconds, no need to
+# restart PX4:
+#     ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=1.5708
+# Try 0.0 / 1.5708 / 3.1416 / -1.5708 and keep whichever parks the drone
+# square between the clamps. The clamps close along world Y (0.774 m apart) and
+# world X (0.782 m apart), so the drone body must line up with those axes --
+# that, not the lid colour, is what decides which value is correct.
+MARKER_YAW = 1.5708
 
 
 def generate_launch_description():
@@ -108,6 +125,7 @@ def generate_launch_description():
         DeclareLaunchArgument('z', default_value=str(SPAWN_Z)),
         DeclareLaunchArgument('R', default_value=str(SPAWN_ROLL)),
         DeclareLaunchArgument('Y_yaw', default_value='0.0'),
+        DeclareLaunchArgument('marker_yaw', default_value=str(MARKER_YAW)),
     ]
 
     xacro_file = os.path.join(pkg_box_sim, 'urdf', 'box.xacro')
@@ -143,7 +161,8 @@ def generate_launch_description():
                    '-name', 'dib_box_marker',
                    '-x', str(MARKER_X),
                    '-y', str(MARKER_Y),
-                   '-z', str(MARKER_Z)],
+                   '-z', str(MARKER_Z),
+                   '-Y', LaunchConfiguration('marker_yaw')],
         output='screen'
     )
 

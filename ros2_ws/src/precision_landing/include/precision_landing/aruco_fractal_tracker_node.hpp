@@ -24,6 +24,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <dib_msgs/msg/landing_target6_d.hpp>
 #include <dib_msgs/msg/box_telemetry.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -57,6 +58,18 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr marker_pose_pub_;
   rclcpp::Publisher<dib_msgs::msg::LandingTarget6D>::SharedPtr target_pub_;
+
+  /**
+   * Overlay pose/image clock skew, in milliseconds; -1 when the two clocks are
+   * not comparable at all (MAVROS not on the simulation clock).
+   *
+   * A topic rather than a log line on purpose. The tracker terminal already
+   * carries several messages per second, so an extra periodic INFO is lost in
+   * the scroll -- and the HUD field it mirrors was being clipped by the panel
+   * width. This can be read on its own:
+   *     ros2 topic echo /landing/pose_sync_ms
+   */
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pose_sync_pub_;
   std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   geometry_msgs::msg::PoseStamped::SharedPtr last_uav_pose_;
@@ -100,6 +113,33 @@ private:
   double last_processing_latency_ms_{0.0};
   double last_source_latency_ms_{0.0};
   bool source_latency_valid_{false};
+
+  /**
+   * Rolling floor of (now - image_stamp), used to separate REAL transport
+   * latency from a CLOCK OFFSET between the camera and this node.
+   *
+   * `now() - header.stamp` only measures latency when both ends share a clock.
+   * When they do not -- a camera that stamps from its own epoch, an embedded
+   * companion whose NTP has drifted -- the same subtraction yields the offset,
+   * and it looks exactly like a huge, alarming latency. That is what made the
+   * HITL runs report enormous tracker e2e latency on the embedded computer
+   * while `processing` (measured with steady_clock, offset-immune) stayed at a
+   * few milliseconds.
+   *
+   * The two are told apart by their shape, not their size:
+   *   real latency  -- small floor, visible jitter frame to frame
+   *   clock offset  -- large floor, almost no jitter
+   *
+   * So track the minimum over a window. JITTER = raw - floor is offset-free and
+   * is the number worth watching; a large, steady floor is the offset itself.
+   */
+  std::deque<std::pair<double, double>> latency_floor_win_;   // (t_sec, raw_ms)
+  double latency_floor_ms_{0.0};
+  double latency_jitter_ms_{0.0};
+  bool latency_floor_valid_{false};
+  static constexpr double kLatencyFloorWinSec = 10.0;
+  /// A floor above this is reported as a suspected clock offset, not latency.
+  static constexpr double kClockOffsetSuspectMs = 250.0;
   rclcpp::Time last_no_detection_log_;
   rclcpp::Time last_pose_log_;
   rclcpp::Time last_pose_failed_log_;

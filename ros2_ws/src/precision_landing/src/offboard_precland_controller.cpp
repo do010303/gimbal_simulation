@@ -94,6 +94,10 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   this->declare_parameter<int>("drone_id", 1);
   this->declare_parameter<double>("prelanding_timeout_sec", 10.0);
   this->declare_parameter<double>("box_ready_timeout_sec", 30.0);
+  // M3.6: how long DONE waits for the box to reach CHARGING. The box needs
+  // ~35 s after touchdown to close clamps and lid before it even looks at the
+  // power-off request, so this must be comfortably larger than that.
+  this->declare_parameter<double>("power_off_timeout_sec", 90.0);
 
   // --- Get Parameters ---
   camera_x_to_body_east_sign_ = this->get_parameter("camera_x_to_body_east_sign").as_double();
@@ -177,6 +181,7 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   drone_id_ = this->get_parameter("drone_id").as_int();
   prelanding_timeout_sec_ = this->get_parameter("prelanding_timeout_sec").as_double();
   box_ready_timeout_sec_ = this->get_parameter("box_ready_timeout_sec").as_double();
+  power_off_timeout_sec_ = this->get_parameter("power_off_timeout_sec").as_double();
 
   // Keep the telemetry topic and the cmd service pointing at the same box.
   // If the user left box_telemetry_topic at its default, derive it from box_id
@@ -1392,6 +1397,7 @@ void OffboardPreclandController::st_prelanding_check()
     // New landing attempt: drop any ready-latch / request guard left over from
     // a previous cycle, so WAIT_BOX_READY genuinely waits for THIS opening.
     box_link_->reset();
+    done_start_.reset();
     RCLCPP_INFO(this->get_logger(), "PRELANDING_CHECK: verifying gimbal + tracker before asking box b%d",
                 box_id_);
   }
@@ -1915,10 +1921,52 @@ void OffboardPreclandController::set_glare_comp(bool active)
 
 void OffboardPreclandController::st_done()
 {
-  if (!armed_) {
-    RCLCPP_INFO(this->get_logger(), "LANDING COMPLETE — disarmed");
-    transition(PrecLandState::IDLE);
+  if (armed_) {
+    return;
   }
+
+  // M3.6. Before M3.6 this state simply fell through to IDLE, so it lasted
+  // ~33 ms and the box was left in SECURING_DRONE waiting for a request that
+  // never came. It escaped only through its own 5 s "drone telemetry went
+  // stale" fallback, i.e. by the drone appearing to vanish, and never reached
+  // CHARGING. Hold here instead and close the lifecycle properly.
+  if (!done_start_) {
+    done_start_ = now_sec();
+    RCLCPP_INFO(
+      this->get_logger(),
+      "LANDING COMPLETE — disarmed. Waiting for box to secure and charge.");
+  }
+
+  // Gated on box_state == SECURING_DRONE inside BoxLink, and idempotent, so
+  // calling it every tick is safe. The box consumes the request only after its
+  // clamps and lid have closed, roughly 35 s after touchdown.
+  box_link_->request_power_off();
+
+  if (box_link_->power_off_confirmed()) {
+    RCLCPP_INFO(this->get_logger(), "Box reached CHARGING — drone-in-a-box cycle complete");
+    done_start_.reset();
+    transition(PrecLandState::IDLE);
+    return;
+  }
+
+  const double waited = now_sec() - *done_start_;
+  if (waited > power_off_timeout_sec_) {
+    // Not a flight-safety failure: the drone is already down and disarmed.
+    // Report it rather than hiding it, then release the state machine.
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Box did not reach CHARGING within %.0fs (box_state=%u). "
+      "Landing succeeded; the securing sequence did not complete.",
+      power_off_timeout_sec_, box_link_->box_state());
+    done_start_.reset();
+    transition(PrecLandState::IDLE);
+    return;
+  }
+
+  RCLCPP_INFO_THROTTLE(
+    this->get_logger(), *this->get_clock(), 5000,
+    "DONE: waiting for box to charge (%.0fs/%.0fs, box_state=%u)",
+    waited, power_off_timeout_sec_, box_link_->box_state());
 }
 
 }  // namespace precision_landing

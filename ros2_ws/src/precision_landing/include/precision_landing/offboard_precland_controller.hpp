@@ -169,6 +169,7 @@ private:
   int drone_id_;                   // agent_id = drone_id*10 + AGENT_ROLE_DRONE(2)
   double prelanding_timeout_sec_;  // PRELANDING_CHECK -> FALLBACK
   double box_ready_timeout_sec_;   // WAIT_BOX_READY  -> FALLBACK
+  double power_off_timeout_sec_;   // M3.6: DONE -> IDLE even if box never charges
 
   // Tunable Controller Constants
   int ctrl_hz_;
@@ -307,6 +308,7 @@ private:
   std::unique_ptr<BoxLink> box_link_;
   std::optional<double> prelanding_start_;   // entry time of PRELANDING_CHECK
   std::optional<double> wait_box_start_;     // entry time of WAIT_BOX_READY
+  std::optional<double> done_start_;         // M3.6: entry time of DONE
   Vector3 handshake_hold_;                   // position held while handshaking
   double last_camera_info_time_{0.0};        // liveness of the camera pipeline
 
