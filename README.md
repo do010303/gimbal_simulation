@@ -787,30 +787,33 @@ ros2 topic pub -r 2 -t 6 /joint_lid_controller/joint_trajectory \
 
 Nhìn vào lòng box: phải thấy ô marker fractal đen-trắng trên mặt sàn.
 
-### 4.6. Giai đoạn B — vòng kín (thêm 3 terminal)
+### 4.6. Giai đoạn B — vòng kín (thêm 4 terminal)
 
-Giữ nguyên Terminal 1 và 2. Tổng cộng **5 terminal**, không phải 9: bốn node
-phía box đã gom vào một launch.
+Giữ nguyên Terminal 1 và 2. Tổng cộng **6 terminal**, không phải 9: ba node phía
+box gom vào một launch, fixture SITL tách riêng.
 
 | T | Lệnh | Vai trò |
 |---|---|---|
 | 3 | `ros2 launch precision_landing sitl_precland.launch.py` | bridge + tracker + controller |
 | 4 | `ros2 launch precision_landing sitl_mavros.launch.py` | MAVROS (đồng hồ mô phỏng) |
-| 5 | `ros2 launch precision_landing dib_bringup.launch.py` | **cả 4 node phía box trong một terminal** |
+| 5 | `ros2 launch precision_landing dib_bringup.launch.py` | **cả 3 node phía box trong một terminal** |
+| 6 | `ros2 launch $PWD/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture **chỉ dành cho SITL** |
 
-`dib_bringup.launch.py` gom `box_hardware_adapter_node`, `box_state_manager_node`,
-`mavros_to_dib_telemetry` và fixture GPS. Không cần thứ tự khởi động: service
-được chờ kiểu lazy, mọi subscription đều fire-and-forget.
+`dib_bringup.launch.py` gom `box_hardware_adapter_node`, `box_state_manager_node`
+và `mavros_to_dib_telemetry`. Không cần thứ tự khởi động: service được chờ kiểu
+lazy, mọi subscription đều fire-and-forget.
 
-```bash
-# tắt fixture GPS khi chạy trên phần cứng thật (box có GPS thật)
-ros2 launch precision_landing dib_bringup.launch.py use_gps_fixture:=false
-```
+> **Launch sản phẩm không chứa thứ gì của test.** `dib_bringup.launch.py` chạy
+> nguyên xi trên phần cứng thật, không phải nhớ tắt cờ nào. Mọi thứ chỉ có
+> nghĩa trong mô phỏng nằm ở `sitl_fixtures.launch.py` dưới `docs/` (gitignore)
+> — hiện là node publish `/gps` cho box (xem 4.7 để biết vì sao bắt buộc trong
+> SITL). Trên box thật, GPS là thiết bị thật nên T6 bỏ đi.
 
 Giám sát (mở khi cần, không phải lúc nào cũng cần):
 ```bash
 ros2 run rqt_image_view rqt_image_view /precision_landing/debug_image
 ros2 topic echo --field data /landing/pose_sync_ms     # ms; -1 = lệch đồng hồ
+python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py   # cham diem 8 tieu chi
 ```
 
 > **Terminal 4 dùng `sitl_mavros.launch.py`, KHÔNG dùng `mavros px4.launch`.**
@@ -833,6 +836,13 @@ ros2 param get /mavros/mavros_node use_sim_time             # Boolean value is: 
 
 # 3. Bốn controller của box
 ros2 control list_controllers                               # 4 dòng, tất cả 'active'
+```
+
+Sau khi bay xong, kiểm độ ồn log — đếm dòng chứ không cảm tính:
+```bash
+ros2 launch precision_landing dib_bringup.launch.py 2>&1 | tee /tmp/bringup.log
+wc -l /tmp/bringup.log        # cả lượt bay ~2 phút: kỳ vọng DƯỚI 40 dòng
+grep 'Box in' /tmp/bringup.log  # mỗi state đúng MỘT dòng, không lặp
 ```
 
 > **Node là `/mavros/mavros_node`, không phải `/mavros`.** MAVROS chạy dưới
@@ -959,15 +969,51 @@ phải là kiểm tra tính hợp lý: mọi độ lệch dưới một phút đ
 thị như latency.
 
 **Đọc HUD cho đúng.** `UAV ENU U` và `MARKER DIST` **không bằng nhau**, và đó là
-đúng: `U` là độ cao so với **điểm cất cánh**, còn marker giờ nằm **trên nóc box,
-cao 0.64 m**. Kỳ vọng `U ≈ MARKER DIST + 0.64`. Trước M3.5 marker nằm bẹp dưới
-đất nên hai số trùng nhau — bản ghi cũ vì thế gây hiểu nhầm. Số so được với
-`MARKER DIST` là `alt` trong dòng `DESCEND` của controller (`pos_enu_.z` trừ cao
-độ pad), không phải `alt` trong dòng `[YAW-3D]` (`pos_enu_.z` thô).
+đúng — chúng đo từ hai gốc khác nhau:
 
-Kết quả tham chiếu của lần chạy đạt: **sai số hạ cánh 4.0 cm**
-(`final_xy=(2.54, −2.56)` so với marker `(2.5129, −2.5896)`), độ cao lúc chạm
-`0.602–0.628 m` khớp cao độ sàn box `0.63673 m`.
+| | Đo từ đâu |
+|---|---|
+| `UAV ENU: U` | điểm **cất cánh** |
+| `MARKER DIST` | **camera** tới marker, mà marker nằm trên nóc box |
+
+```
+U − MARKER DIST ≈ cao độ marker − cao độ camera so với base_link
+                ≈ 0.637 − 0.118 = 0.52 m
+```
+
+Con số 0.118 đọc từ model, không đoán: `x500_gimbal/model.sdf:9` gắn gimbal ở
+`z = +0.28`, `gimbal/model.sdf:265` đặt sensor ở `z = −0.162` trong gimbal →
+camera **cao hơn** `base_link` 0.118 m. Kiểm chứng độc lập từ log bay: hiệu này
+giữ **hằng số 0.48–0.54 m** suốt quá trình hạ. Hằng số chứ không phải tỷ lệ —
+điều đó cũng loại trừ khả năng sai `marker_size`.
+
+**Trong log, mỗi độ cao có tên riêng** (trước đây cùng gọi là `alt`, gây đúng
+hiểu nhầm trên):
+
+| Tên | Nghĩa |
+|---|---|
+| `alt_agl` | so với điểm cất cánh — dùng ở `[YAW-3D]`, `FINAL_APPROACH` |
+| `alt_pad` | so với marker — dùng ở `APPROACH`, `DESCEND` |
+
+Và **vị trí thì tách chủ thể**:
+```
+FINAL_APPROACH: t=1.2s drone=(2.51,-2.59, alt_agl 0.621m) aim=(2.52,-2.50) ...
+```
+`drone=` là vị trí thật, `aim=` là điểm ngắm (ước lượng marker của tracker).
+Hai thứ khác nhau — dòng cũ trộn chúng dưới một cái tên nên đọc như một toạ độ.
+
+**Đo sai số hạ cánh** — dòng `TOUCHDOWN` in ra lúc disarm:
+```
+TOUCHDOWN: drone=(2.5104, -2.5863)  aim=(2.5200, -2.5000)  aim_error=0.090m  alt_agl=0.664m
+```
+Lấy `drone=` trừ vị trí marker thật `(2.5129, −2.5896)` trong
+`box_spawn_only.launch.py` để có sai số so với marker. `aim_error` là chuyện
+khác: sai lệch giữa drone và điểm ngắm, tức chất lượng bám của vòng điều khiển.
+
+> Các số "sai số hạ cánh" ghi trong tài liệu **trước 2026-07-23** được lấy từ
+> `final_xy`, mà đó là **điểm ngắm** chứ không phải vị trí drone — nên chúng
+> thực ra là sai số **ước lượng marker của tracker**. Đừng so chúng với
+> `TOUCHDOWN`.
 
 Dòng `Ground contact: blocked by 20.5cm → force-disarm` **không phải lỗi**:
 drone dừng cao hơn mặt đất 0.6 m vì nó đang đứng trên box, và nhánh

@@ -94,13 +94,16 @@ MARKER_Z = SPAWN_Z - 0.1456     # 0.63673
 # (facing East) and ends up nose-on to the yellow lid instead of squared up
 # with the box. pi/2 turns it a quarter turn onto the other axis.
 #
-# Override without editing this file -- the box respawns in seconds, no need to
-# restart PX4:
-#     ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=1.5708
-# Try 0.0 / 1.5708 / 3.1416 / -1.5708 and keep whichever parks the drone
-# square between the clamps. The clamps close along world Y (0.774 m apart) and
-# world X (0.782 m apart), so the drone body must line up with those axes --
-# that, not the lid colour, is what decides which value is correct.
+# pi/2 is the CONFIRMED value -- flight-tested, the drone locks yaw at 89.9 deg
+# and parks square with the box rather than nose-on to the lid.
+#
+# Still overridable without editing this file, should the box or the drone
+# frame change (the box respawns in seconds; PX4 does not need restarting):
+#     ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=0.0
+# If you ever re-derive it, judge by the CLAMPS, not the lid colour: they close
+# along world Y (0.774 m apart) and world X (0.782 m apart), so the drone body
+# must line up with those axes. Picking by eye off the lid can still leave you
+# 90 degrees out.
 MARKER_YAW = 1.5708
 
 

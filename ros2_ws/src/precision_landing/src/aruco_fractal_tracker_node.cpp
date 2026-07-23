@@ -345,7 +345,7 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
   
   // Log mean brightness for tuning (once per second/FPS cycle)
   double mean_brightness = cv::mean(gray)[0];
-  if (frame_count_ % static_cast<size_t>(std::max(1.0, current_fps_)) == 0) {
+  if (frame_count_ % static_cast<size_t>(std::max(1.0, current_fps_ * 5.0)) == 0) {
     RCLCPP_INFO(this->get_logger(), "Image mean brightness: %.1f | Glare comp: %s | Shadow comp: %s",
       mean_brightness, enable_glare_compensation_ ? "ACTIVE" : "OFF",
       enable_shadow_compensation_ ? "ACTIVE" : "OFF");
@@ -419,18 +419,25 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
       ++detection_count_;
       publishTarget(msg->header, tf2_translation, tf2_rot, markers.empty() ? 0 : markers.front().id);
 
-      if ((now - last_pose_log_).seconds() >= 1.0)
+      // Report the TRANSITION, not the stream. This used to fire once a second
+      // for the whole descent, which drowned the terminal and still made a
+      // state change easy to miss among identical-looking lines.
+      if (tracking_state_ != last_logged_tracking_state_)
       {
         RCLCPP_INFO(
           this->get_logger(),
-          "Fractal marker detected: frames=%zu detections=%zu state=%u accepted=%s tvec=[%.2f, %.2f, %.2f] ids=[%s] frame_id=%s%s%s",
-          frame_count_, detection_count_,
-          tracking_state_, pose_accepted ? "yes" : "no",
-          tf2_translation.x(), tf2_translation.y(), tf2_translation.z(),
+          "[TRACKER] %s -> %s  ids=[%s] cam_tvec=[%.2f, %.2f, %.2f] dist=%.2fm "
+          "accepted=%s%s%s (frames=%zu detections=%zu)",
+          trackingStateName(last_logged_tracking_state_),
+          trackingStateName(tracking_state_),
           ids_str.c_str(),
-          msg->header.frame_id.c_str(),
+          tf2_translation.x(), tf2_translation.y(), tf2_translation.z(),
+          tf2_translation.length(),
+          pose_accepted ? "yes" : "no",
           reject_reason.empty() ? "" : " reject=",
-          reject_reason.c_str());
+          reject_reason.c_str(),
+          frame_count_, detection_count_);
+        last_logged_tracking_state_ = tracking_state_;
         last_pose_log_ = now;
       }
 
@@ -510,6 +517,18 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
     last_marker_distance_valid_ = false;
     last_detected_ids_str_ = "None";
     publishTrackerStateOnly(msg->header);
+
+    // The marker can also be lost by simply leaving the frame, which never
+    // reaches the detection branch above -- report that transition here.
+    if (tracking_state_ != last_logged_tracking_state_)
+    {
+      RCLCPP_INFO(
+        this->get_logger(), "[TRACKER] %s -> %s  (no marker in frame, frames=%zu)",
+        trackingStateName(last_logged_tracking_state_),
+        trackingStateName(tracking_state_), frame_count_);
+      last_logged_tracking_state_ = tracking_state_;
+    }
+
     if ((now - last_no_detection_log_).seconds() >= 2.0)
     {
       RCLCPP_WARN(
@@ -669,7 +688,15 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
       // the box, 0.64 m off the ground. Expect U ~= MARKER DIST + 0.64.
       // Before M3.5 the marker lay flat on the ground and the two did match,
       // so an older reading of this overlay is misleading.
-      draw_text(cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f", uav_x, uav_y, uav_z));
+      // "U" and "MARKER DIST" below are NOT the same datum and will never be
+      // equal. U is measured from the take-off point; MARKER DIST is measured
+      // from the camera to a marker sitting on top of the box. Expect
+      //   U - MARKER DIST  ~=  marker height - camera height above base_link
+      //                    ~=  0.637 - 0.118  =  0.52 m   (SITL box)
+      // Say so on the frame, because reading them as one quantity is the
+      // easiest mistake this overlay invites.
+      draw_text(cv::format("UAV ENU: E=%.2f, N=%.2f, U=%.2f  (U: from takeoff)",
+                           uav_x, uav_y, uav_z));
 
       if (last_overlay_pose_skew_s_ < 0.0) {
         // Clocks not comparable -- the altitude above is the NEWEST pose, not
@@ -743,7 +770,7 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
 
         draw_text(cv::format("REL ENU: E=%.2f, N=%.2f", rel_east, rel_north), cv::Scalar(100, 255, 100)); // Light green
         draw_text(cv::format("TGT ENU: E=%.2f, N=%.2f", abs_east, abs_north), cv::Scalar(100, 100, 255)); // Light red/blue
-        draw_text(cv::format("MARKER DIST: %.2fm", marker_distance_m), cv::Scalar(100, 255, 255));
+        draw_text(cv::format("MARKER DIST: %.2fm  (cam->marker)", marker_distance_m), cv::Scalar(100, 255, 255));
         draw_text(cv::format("CAM TVEC: [%.2f, %.2f, %.2f]", marker_tx, marker_ty, marker_tz));
       }
       else
@@ -762,7 +789,7 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
       draw_text("REL ENU: WAITING FOR MAVROS...");
       if (marker_pose_valid)
       {
-        draw_text(cv::format("MARKER DIST: %.2fm", marker_distance_m), cv::Scalar(100, 255, 255));
+        draw_text(cv::format("MARKER DIST: %.2fm  (cam->marker)", marker_distance_m), cv::Scalar(100, 255, 255));
         draw_text(cv::format("CAM TVEC: [%.2f, %.2f, %.2f]", marker_tx, marker_ty, marker_tz));
       }
       else
@@ -773,7 +800,9 @@ void ArucoFractalTracker::imageCallback(const sensor_msgs::msg::Image::SharedPtr
     }
   }
 
-  if ((now - last_latency_log_).seconds() >= 1.0)
+  // 5 s, not 1 s: this is a periodic health number, not an event. Kept at INFO
+  // rather than dropped to DEBUG so a past run's log can still be replayed.
+  if ((now - last_latency_log_).seconds() >= 5.0)
   {
     if (source_latency_valid_)
     {

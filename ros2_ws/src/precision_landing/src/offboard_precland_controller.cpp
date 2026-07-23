@@ -503,7 +503,7 @@ void OffboardPreclandController::on_target(const geometry_msgs::msg::PoseStamped
       double body_yaw = tf_ok ? get_yaw(q_att_) : get_yaw(h_q);
       RCLCPP_INFO(
         this->get_logger(),
-        "[YAW-3D] alt=%.1fm stage=%d body=%.1f deg | sample=%.1f deg | locked=%s target=%.1f deg | buf=%d/%d | sp=%.1f deg",
+        "[YAW-3D] alt_agl=%.1fm stage=%d body=%.1f deg | sample=%.1f deg | locked=%s target=%.1f deg | buf=%d/%d | sp=%.1f deg",
         pos_enu_.z, yaw_lock_stage_, body_yaw * 180.0 / M_PI, world_yaw_sample * 180.0 / M_PI,
         yaw_locked_ ? "true" : "false", tag_yaw_abs_.has_value() ? tag_yaw_abs_.value() * 180.0 / M_PI : 0.0,
         (int)yaw_lock_buf_.size(), yaw_lock_samples_, sp_yaw_ * 180.0 / M_PI
@@ -1558,7 +1558,7 @@ void OffboardPreclandController::st_horizontal_approach()
   if (target_counter_ % ctrl_hz_ == 0) {
     RCLCPP_INFO(
       this->get_logger(),
-      "APPROACH: alt=%.1f err=%.2f gate=%.2f cnt=%d/%d",
+      "APPROACH: alt_pad=%.1f err=%.2f gate=%.2f cnt=%d/%d",
       get_alt(), target_rel_norm_, ar, centered_count_, align_confirm_
     );
   }
@@ -1730,7 +1730,7 @@ void OffboardPreclandController::st_descend_above_target()
     std::string phase = descent_ok ? "descending" : "z-locked";
     RCLCPP_INFO(
       this->get_logger(),
-      "DESCEND (%s): alt=%.2f z_sp=%.2f rate=%.2f err=%.2f gate=%.2f",
+      "DESCEND (%s): alt_pad=%.2f z_sp=%.2f rate=%.2f err=%.2f gate=%.2f",
       phase.c_str(), get_alt(), descent_z_sp_, current_descent_rate(), target_rel_norm_, dr
     );
   }
@@ -1738,7 +1738,7 @@ void OffboardPreclandController::st_descend_above_target()
 
   if (get_alt() <= final_alt_param_ + 0.15 ||
       landed_state_ == mavros_msgs::msg::ExtendedState::LANDED_STATE_ON_GROUND) {
-    RCLCPP_INFO(this->get_logger(), "Final altitude or ground contact reached (relative_alt=%.2fm, landed=%d)",
+    RCLCPP_INFO(this->get_logger(), "Final altitude or ground contact reached (alt_pad=%.2fm, landed=%d)",
                 get_alt(), landed_state_);
     transition(PrecLandState::FINAL_APPROACH);
   }
@@ -1753,8 +1753,10 @@ void OffboardPreclandController::st_final_approach()
   // Diagnostic log every second
   if (target_counter_ % ctrl_hz_ == 0) {
     RCLCPP_INFO(this->get_logger(),
-      "FINAL_APPROACH: t=%.1fs alt=%.3fm drop=%.3f/%.3fm final_xy=(%.2f,%.2f) landed=%d disarm_req=%s",
-      elapsed, pos_enu_.z, actual_drop, expected_drop, final_x_, final_y_,
+      "FINAL_APPROACH: t=%.1fs drone=(%.2f,%.2f, alt_agl %.3fm) aim=(%.2f,%.2f) "
+      "drop=%.3f/%.3fm landed=%d disarm_req=%s",
+      elapsed, pos_enu_.x, pos_enu_.y, pos_enu_.z, final_x_, final_y_,
+      actual_drop, expected_drop,
       (int)landed_state_, disarm_requested_ ? "true" : "false");
   }
   target_counter_++;
@@ -1932,6 +1934,20 @@ void OffboardPreclandController::st_done()
   // CHARGING. Hold here instead and close the lifecycle properly.
   if (!done_start_) {
     done_start_ = now_sec();
+
+    // Where the drone ACTUALLY came to rest. Nothing logged this before, so
+    // the system's landing accuracy had never been measured -- FINAL_APPROACH
+    // prints final_x_/final_y_, which is the AIM POINT (the tracker's estimate
+    // of the marker), not the drone. The two are logged side by side here so
+    // the difference is visible instead of inferred.
+    const double aim_dx = pos_enu_.x - final_x_;
+    const double aim_dy = pos_enu_.y - final_y_;
+    RCLCPP_INFO(
+      this->get_logger(),
+      "TOUCHDOWN: drone=(%.4f, %.4f)  aim=(%.4f, %.4f)  aim_error=%.3fm  alt_agl=%.3fm",
+      pos_enu_.x, pos_enu_.y, final_x_, final_y_,
+      std::sqrt(aim_dx * aim_dx + aim_dy * aim_dy), pos_enu_.z);
+
     RCLCPP_INFO(
       this->get_logger(),
       "LANDING COMPLETE — disarmed. Waiting for box to secure and charge.");

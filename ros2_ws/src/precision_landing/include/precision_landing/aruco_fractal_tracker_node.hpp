@@ -141,6 +141,25 @@ private:
   /// A floor above this is reported as a suspected clock offset, not latency.
   static constexpr double kClockOffsetSuspectMs = 250.0;
   rclcpp::Time last_no_detection_log_;
+  /**
+   * Last tracking_state_ that was written to the log, so the detection line
+   * reports a TRANSITION (LOST -> SEARCHING -> TRACKING) instead of repeating
+   * once a second for the whole flight. 255 = nothing logged yet, so the very
+   * first frame always announces the state it started in.
+   */
+  uint8_t last_logged_tracking_state_{255};
+
+  /// Human-readable name for a LandingTarget6D tracking state.
+  static const char * trackingStateName(uint8_t s)
+  {
+    switch (s) {
+      case dib_msgs::msg::LandingTarget6D::LOST:      return "LOST";
+      case dib_msgs::msg::LandingTarget6D::SEARCHING: return "SEARCHING";
+      case dib_msgs::msg::LandingTarget6D::TRACKING:  return "TRACKING";
+      default:                                        return "INIT";
+    }
+  }
+
   rclcpp::Time last_pose_log_;
   rclcpp::Time last_pose_failed_log_;
   rclcpp::Time last_latency_log_;

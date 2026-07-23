@@ -6,7 +6,20 @@
     camera_yaw_frame: "body"
     camera_offset_x: 0.157
     camera_offset_y: 0.0
-    camera_offset_z: -0.15
+    # Camera height relative to base_link, POSITIVE = above. Read from the
+    # simulation models rather than assumed:
+    #   x500_gimbal/model.sdf:9  gimbal mounted at <pose>0.085 0 0.28 ...>
+    #   gimbal/model.sdf:265     camera sensor at  <pose>-0.0412 0 -0.162 ...>
+    #   => 0.28 - 0.162 = +0.118 m, i.e. the camera sits ABOVE base_link.
+    # This was -0.15 (below), wrong by 0.27 m and wrong in sign. Confirmed
+    # independently from flight logs: UAV z minus marker distance held a
+    # constant 0.48-0.54 m across a descent, and 0.63673 (marker height) minus
+    # 0.118 = 0.519 m matches. A constant offset, not a constant ratio, which
+    # also rules out marker_size being wrong.
+    # Only feeds the published base_link->camera TF (see broadcastCameraTf);
+    # the landing setpoint uses x/y and forces z=0, which is why landings were
+    # unaffected.
+    camera_offset_z: 0.118
     # Side of the BLACK external fractal marker, in metres -- NOT the size of
     # the textured plane, and NOT including marker.png's white quiet zone.
     # Verified in aruco 3.1.12: custom_fractal.yml has mInfoType 2 (NORMALIZE)
