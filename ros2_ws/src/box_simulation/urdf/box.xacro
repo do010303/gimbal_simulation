@@ -1,0 +1,362 @@
+<?xml version="1.0" ?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="box">
+
+  <xacro:arg name="name_space" default="robot1"/>
+  <xacro:property name="name_space" value="$(arg name_space)"/>
+
+  <joint name="clamp_h_1_joint" type="prismatic">
+    <parent link="base_link"/>
+    <child link="clamp_h_1_link"/>
+    <axis xyz="0.00000 0.00000 -1.00000"/>
+    <limit effort="1000.0" lower="0" upper="0.2" velocity="2.0"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.01390 -0.13998 0.97687"/>
+  </joint>
+  <joint name="clamp_h_2_joint" type="prismatic">
+    <mimic joint="clamp_h_1_joint"/>
+    <parent link="base_link"/>
+    <child link="clamp_h_2_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+    <limit effort="1000.0" lower="0" upper="0.2" velocity="2.0"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.01390 -0.13998 0.20239"/>
+  </joint>
+  <joint name="clamp_v_1_joint" type="prismatic">
+    <parent link="base_link"/>
+    <child link="clamp_v_1_link"/>
+    <axis xyz="1.00000 0.00000 0.00000"/>
+    <limit effort="100.0" lower="0" upper="0.2" velocity="2.0"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.37827 -0.15098 0.57782"/>
+  </joint>
+  <joint name="clamp_v_2_joint" type="prismatic">
+    <mimic joint="clamp_v_1_joint"/>                    
+    <parent link="base_link"/>
+    <child link="clamp_v_2_link"/>
+    <axis xyz="-1.00000 0.00000 0.00000"/>
+    <limit effort="100.0" lower="0" upper="0.2" velocity="2.0"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.40400 -0.15098 0.57452"/>
+  </joint>
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="gps_link"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.21299 1.94386 -1.33887"/>
+  </joint>
+  <joint name="lid_left_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="lid_left_link"/>
+    <axis xyz="0.00000 0.00000 -1.00000"/>
+    <limit effort="100000.0" lower="0" upper="1.57" velocity="1.00000"/>
+    <origin rpy="0.00000 0.00000 0" xyz="0.55819 -0.51697 0.58105"/>
+  </joint>
+  <joint name="lid_right_joint" type="revolute">
+    <mimic joint="lid_left_joint"/> 
+    <parent link="base_link"/>
+    <child link="lid_right_link"/>
+    <axis xyz="0.00000 0.00000 1.00000"/>
+    <limit effort="100000.00" lower="0" upper="1.57" velocity="1.00000"/>
+    <origin rpy="0.00000 0.00000 0" xyz="-0.56418 -0.51697 0.58105"/>
+  </joint>
+  <link name="base_link">
+    <origin rpy="0 0.00000 0.00000" xyz="0 0 0"/>
+    <collision name="base_collision">
+      <origin xyz="0.00000 -0.46647 0.58282" rpy="-0.00000 0.00 -0.00000"/>
+      <geometry>
+          <box size="1.04977 0.63172 1.13211"/>
+      </geometry>
+    </collision>
+    <collision name="base_collision.000">
+      <origin xyz="-0.01570 0.63546 -1.38812" rpy="-0.00000 0.00000 0.00000"/>
+      <geometry>
+          <box size="0.72424 2.80801 0.36035"/>
+      </geometry>
+      <surface>
+        <contact/>
+      </surface>
+    </collision>
+    <inertial>
+      <inertia ixx="5" ixy="0" ixz="0" iyy="5" iyz="0" izz="5"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00725 -0.09552 0.12968"/>
+      <mass value="20.00000"/>
+    </inertial>
+    <visual>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="clamp_h_1_link">
+    <collision name="clamp_h_1_collision">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.20780 -0.00077 0.01984"/>
+      <geometry>
+        <box size="0.69164 0.01761 0.03000"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_1_collision.000">
+      <origin rpy="0.00292 0.00002 -0.00605" xyz="-0.12625 -0.00077 -0.02087"/>
+      <geometry>
+        <box size="0.03000 0.01761 0.10710"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_1_collision.000.001">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.35312 -0.00077 -0.09766"/>
+      <geometry>
+        <box size="0.34019 0.01761 0.03000"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_1_collision.000.001.002">
+      <origin rpy="-0.00000 -0.55460 0.00000" xyz="-0.15378 -0.00077 -0.08179"/>
+      <geometry>
+        <box size="0.08315 0.01761 0.03000"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <mass value="0.50000"/>
+    </inertial>
+    <visual>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.002.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="clamp_h_2_link">
+    <collision name="clamp_h_2_collision">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.20681 -0.00077 -0.01990"/>
+      <geometry>
+        <box size="0.69923 0.01761 0.03"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_2_collision.000">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.34567 -0.00077 0.09961"/>
+      <geometry>
+        <box size="0.31117 0.01761 0.03"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_2_collision.000.001">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.12996 -0.00077 0.01855"/>
+      <geometry>
+        <box size="0.03 0.01761 0.10126"/>
+      </geometry>
+    </collision>
+    <collision name="clamp_h_2_collision.000.001.002">
+      <origin rpy="-0.00000 0.55460 0.00000" xyz="-0.15741 -0.00077 0.08258"/>
+      <geometry>
+        <box size="0.08223 0.01761 0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <mass value="0.50000"/>
+    </inertial>
+    <visual>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.004.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="clamp_v_1_link">
+    <collision name="clamp_v_1_collision">
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00079 -0.00109 0.00183"/>
+      <geometry>
+        <box size="0.03586 0.01435 1.08057"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <mass value="0.50000"/>
+    </inertial>
+    <visual>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.006.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="clamp_v_2_link">
+    <collision name="clamp_v_2_collision">
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.07289 0.00244 0.00360"/>
+      <geometry>
+        <box size="0.03787 0.01538 1.07532"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <mass value="0.50000"/>
+    </inertial>
+    <visual>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00001 0.00000 -0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.005.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="gps_link">
+    <visual>
+      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 -0.00000 0.00012"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.007.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+    </visual>
+    <inertial>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <mass value="0.0100"/>
+    </inertial>
+  </link>
+  <link name="lid_left_link">
+    
+    <inertial>
+      <inertia ixx="0.001" ixy="0.0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.0 0.0 0.00000"/>
+      <mass value="1.00000"/>
+    </inertial>
+    <visual>
+      <origin rpy="-0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 -0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.001.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+      <material name="Gazebo/Orange"/>
+    </visual>
+  </link>
+  <link name="lid_right_link">
+    <inertial>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0.00000 0.00000 0.00000" xyz="0.0 0.0 0.00000"/>
+      <mass value="1.00000"/>
+    </inertial>
+    <visual>
+      <origin rpy="-0.00000 -0.00000 -0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <geometry>
+        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.003.dae" scale="0.00100 0.00100 0.00100"/>
+      </geometry>
+      <material name="Gazebo/Blue"/>
+    </visual>
+  </link>
+  <gazebo reference="lid_left_link">
+    <material>Gazebo/Orange</material>
+  </gazebo>
+  <gazebo reference="lid_right_link">
+    <material>Gazebo/Blue</material>
+  </gazebo>
+  <gazebo reference="base_link">
+    <material>Gazebo/White</material>
+
+    <!-- M3.5: the fractal ArUco marker is NOT here. It is its own SDF model,
+         Tools/simulation/gz/models/dib_box_marker, spawned onto this box by
+         box_spawn_only.launch.py at a pose derived from the box spawn pose.
+
+         A <visual> was tried here first and FAILED SILENTLY. sdformat's URDF
+         parser does not turn a <visual> inside <gazebo reference="..."> into a
+         visual of its own; it strips the wrapper and merges the children into
+         the link's existing base_link_visual, which then carries two <pose>
+         and two <geometry> elements. The first of each wins, so the marker
+         plane was discarded with no error and no warning; the box rendered
+         normally and the landing surface was simply blank.
+
+         Proof, should anyone be tempted to try again: the xacro output
+         contains landing_marker_visual once, and `gz sdf -p` output contains
+         it zero times. URDF also has no <plane> geometry and no PBR
+         albedo_map, so this marker cannot be expressed here at all. -->
+  </gazebo>
+  <gazebo reference="clamp_v_1_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  <gazebo reference="clamp_v_2_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  <gazebo reference="clamp_h_1_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  <gazebo reference="clamp_h_2_link">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+  <gazebo reference="gps_link">
+    <material>Gazebo/Black</material>
+  </gazebo>
+  <ros2_control name="GazeboSimSystem" type="system">
+    <hardware>
+      <!-- Gazebo Harmonic (gz-sim8) uses gz_ros2_control; the ign_ros2_control
+           name is for the older Ignition Fortress and fails to load here
+           (missing GzPluginHook). -->
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+    <joint name="clamp_h_1_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="clamp_h_2_joint">
+      <param name="mimic">clamp_h_1_joint</param>
+      <param name="multiplier">1</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="clamp_v_1_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="clamp_v_2_joint">
+      <param name="mimic">clamp_v_1_joint</param>
+      <param name="multiplier">1</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="lid_left_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="lid_right_joint">
+      <param name="mimic">lid_left_joint</param>
+      <param name="multiplier">1</param>
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+  <gazebo>
+    <!-- Gazebo Harmonic (gz-sim8) plugin name; was ign_ros2_control-system
+         (Ignition Fortress) which does not load under Harmonic. -->
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find box_simulation)/config/box_controller.yaml</parameters>
+    </plugin>
+  </gazebo>
+  <gazebo reference="gps_link">
+    <sensor name="my_gps" type="navsat">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <topic>${name_space}/gps/fix</topic>
+      <navsat>
+        <position_sensing>
+          <horizontal>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </horizontal>
+          <vertical>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>2e-4</stddev>
+            </noise>
+          </vertical>
+        </position_sensing>
+      </navsat>
+    </sensor>
+  </gazebo>
+</robot>

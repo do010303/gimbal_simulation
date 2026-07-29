@@ -1,0 +1,23 @@
+/**:
+  ros__parameters:
+    box_id: 2
+/box_state_manager:
+  ros__parameters:
+    # M2/SITL: box_simulation clamp joints travel 0..0.2 m; box_hardware_adapter
+    # reports position in mm (round(m*1000)) -> full-close = 200. Real box uses
+    # encoder counts (H=8850, V=4100) -- restore those when running on hardware.
+    pos_clamp_h_close: 200   # real hardware value: 8850
+    pos_clamp_v_close: 200   # real hardware value: 4100
+    # M3/SITL: these place the box centre relative to the GPS ANTENNA on the
+    # real box. In SITL box_gps_publisher.py already publishes the pad centre
+    # directly, so applying the offset shifts box_info 1.9 m north of the actual
+    # marker. That error plus goto_box_arrival_radius pushed the marker outside
+    # the camera's vertical footprint (vFOV 51.3 deg) during 7b -- the drone
+    # never saw it. Zeroed for SITL; restore the real values on hardware.
+    x_anten_gps_offset: 0.0   # real hardware value: -0.15
+    y_anten_gps_offset: 0.0   # real hardware value: 1.9
+    z_anten_gps_offset: 0.0   # real hardware value: -1.5
+    yaw_box: 0.0
+# /scheduler:
+#   ros__parameters:
+#     mission_schedule_folder_path: "/home/ws/src/box_manager/schedules"

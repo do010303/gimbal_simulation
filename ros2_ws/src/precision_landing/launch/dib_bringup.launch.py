@@ -31,6 +31,8 @@ WHAT IS DELIBERATELY NOT HERE
 
 import os
 
+from ament_index_python.packages import get_package_share_directory
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -38,8 +40,13 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
+# Resolve from the installed box_manager package share, not a hard-coded home
+# path -- box_manager is vendored into this workspace (ros2_ws/src/box_manager)
+# and its CMakeLists installs config/ to share/box_manager/, so this works from
+# any clone. The old '~/PX4/examples/box_manager/...' path broke on every other
+# machine.
 BOX_MANAGER_PARAMS = os.path.join(
-    os.path.expanduser('~'), 'PX4', 'examples', 'box_manager', 'config',
+    get_package_share_directory('box_manager'), 'config',
     'box_state_manager.yaml')
 
 

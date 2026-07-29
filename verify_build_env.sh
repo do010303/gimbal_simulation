@@ -111,12 +111,52 @@ else
 fi
 
 # 6. Kiểm tra Python requirements
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "Kiểm tra các thư viện Python..."
-if [ -f "requirements.txt" ]; then
-    pip3 install -r requirements.txt
+if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
+    pip3 install -r "$SCRIPT_DIR/requirements.txt"
     echo -e "${GREEN}[OK] Đã cài đặt các thư viện Python${NC}"
 else
     pip3 install numpy pymavlink opencv-python
+fi
+
+# 7. Giải nén mesh visual thân box.
+# BOX PAD1.0_simple.dae (270 MB) vượt giới hạn 100 MB của GitHub nên repo chỉ
+# ship bản .gz (64 MB); URDF của box tham chiếu bản .dae, phải giải nén trước build.
+echo "Kiểm tra mesh thân box (BOX PAD1.0_simple.dae)..."
+BOX_DAE="$SCRIPT_DIR/ros2_ws/src/box_simulation/meshes/dae/BOX PAD1.0_simple.dae"
+if [ -f "$BOX_DAE" ]; then
+    echo -e "${GREEN}[OK] Mesh thân box đã sẵn sàng${NC}"
+elif [ -f "$BOX_DAE.gz" ]; then
+    echo -e "${YELLOW}Đang giải nén mesh thân box từ .gz...${NC}"
+    gunzip -k "$BOX_DAE.gz"
+    echo -e "${GREEN}[OK] Đã giải nén BOX PAD1.0_simple.dae${NC}"
+else
+    echo -e "${RED}[FAIL] Thiếu cả BOX PAD1.0_simple.dae lẫn .gz!${NC} Kiểm tra ros2_ws/src/box_simulation/meshes/dae/"
+fi
+
+# 8. Kiểm tra dependency NGOÀI repo — thiếu thì clone-and-run sẽ gãy im lặng.
+echo "Kiểm tra dependency ngoài repo..."
+DEP_FAIL=0
+# 8a. Hai package box đã vendor phải có thật (không phải symlink gãy sau clone).
+for pkg in box_manager box_simulation; do
+    if [ ! -f "$SCRIPT_DIR/ros2_ws/src/$pkg/package.xml" ]; then
+        echo -e "${RED}[FAIL] Thiếu package '$pkg' trong ros2_ws/src (không đọc được package.xml).${NC}"
+        DEP_FAIL=1
+    fi
+done
+[ $DEP_FAIL -eq 0 ] && echo -e "${GREEN}[OK] box_manager và box_simulation đã có trong repo${NC}"
+# 8b. gz_ros2_control (Harmonic) — bắt buộc cho ros2_control của box.
+if ! ros2 pkg list 2>/dev/null | grep -qx "gz_ros2_control"; then
+    echo -e "${YELLOW}[WARN] Chưa thấy gz_ros2_control trong môi trường ROS.${NC}"
+    echo    "       Build từ nguồn cho Gazebo Harmonic rồi source trước khi chạy box:"
+    echo    "         source ~/gz_ros2_control_ws/install/setup.bash"
+    echo    "       (bản apt ros-humble-gz-ros2-control là cho Fortress → gz server segfault khi spawn box)"
+fi
+# 8c. px4_msgs — clone riêng (giữ nguyên cơ chế cũ).
+if [ ! -f "$SCRIPT_DIR/ros2_ws/src/px4_msgs/package.xml" ]; then
+    echo -e "${YELLOW}[WARN] Thiếu px4_msgs.${NC} Clone vào workspace:"
+    echo    "         git clone https://github.com/PX4/px4_msgs.git \"$SCRIPT_DIR/ros2_ws/src/px4_msgs\""
 fi
 
 echo -e "\n${GREEN}=== XÁC THỰC HOÀN TẤT: Môi trường đã sẵn sàng để build! ===${NC}"

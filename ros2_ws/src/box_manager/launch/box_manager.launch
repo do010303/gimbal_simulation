@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+    <arg name="box_manager_config" default="$(find-pkg-share box_manager)/config/box_state_manager.yaml" />
+    
+    <node pkg="box_manager" exec="box_state_manager_node" name="box_state_manager" output="screen" args="--ros-args --log-level INFO">
+        <!-- Use 'param' correctly if needed -->
+        <param from="$(var box_manager_config)" /> 
+    </node>
+
+    <node pkg="box_manager" exec="scheduler_node" name="scheduler" output="screen" args="--ros-args --log-level WARN">
+        <!-- Use 'param' correctly if needed -->
+        <param from="$(var box_manager_config)" /> 
+    </node>
+    <node pkg="box_pkg" exec="box_pkg_node" name="box_pkg_node" output="screen" args="--ros-args --log-level WARN"/>
+    <include file="$(find-pkg-share base_rtk)/launch/base_rtk.xml" />
+</launch>

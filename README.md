@@ -56,14 +56,18 @@ Project này chứa pipeline hạ cánh chính xác cho drone `x500_gimbal` tron
    > log và FSM vẫn *trông như* đang chạy đúng. Hướng dẫn khôi phục pad tĩnh
    > nằm ngay trong chú thích của file world.
 
-4. **Áp overlay cho các package ngoài repo** (chỉ cần khi chạy pipeline M3.5):
+4. **Package box đã nằm trong repo — không cần overlay nữa.**
+   Từ mốc M3, `box_manager` (FSM box) và `box_simulation` (model box khớp động +
+   marker) được **vendor thẳng vào `ros2_ws/src/`**, nên clone về là có sẵn, không
+   phải copy overlay hay symlink ra ngoài như trước. Thư mục `overlays/` chỉ còn
+   giữ lại để tham chiếu lịch sử.
 
-   ```bash
-   cp examples/SITL_PrecisionLanding/overlays/box_simulation/launch/box_spawn_only.launch.py \
-      <đường-dẫn>/box_simulation/launch/
-   ```
-
-   Chi tiết: `overlays/README.md`.
+   > **Mesh thân box ship dạng nén.** `box_simulation/meshes/dae/BOX PAD1.0_simple.dae`
+   > (visual thân box) nặng 270 MB — vượt giới hạn 100 MB/file của GitHub — nên repo
+   > chỉ chứa bản `.dae.gz` (64 MB). `verify_build_env.sh` **tự gunzip** nó ra trước
+   > khi build (bước 5 dưới). Nếu build xong mà box **vô hình** trong Gazebo thì gần
+   > như chắc chắn là chưa giải nén — chạy lại `./verify_build_env.sh`. (Mesh nắp/kẹp
+   > `002`–`007` nhỏ nên nằm thẳng trong repo; `base_link_1.dae` đã bỏ vì không dùng.)
 
 ---
 
@@ -91,8 +95,62 @@ chmod +x verify_build_env.sh
 Script này sẽ tự động:
 1. Phát hiện phiên bản Gazebo của bạn để cài đặt đúng gói bridge.
 2. Kiểm tra và tự động cài các package ROS 2 còn thiếu.
-3. Giải nén và tự động biên dịch thư viện C++ `libaruco 3.1.12` từ file đính kèm nếu hệ thống chưa có.
+3. Giải nén và tự động biên dịch thư viện C++ `libaruco 3.1.12` từ `aruco_build/aruco.zip` (đã có sẵn trong repo) nếu hệ thống chưa có.
 4. Cài đặt các package Python thông qua `requirements.txt`.
+5. **Giải nén mesh thân box** `BOX PAD1.0_simple.dae.gz` → `.dae` (bắt buộc trước khi build, xem mục 4 ở trên).
+6. **Kiểm tra dependency ngoài repo** (`box_manager`/`box_simulation` đã có, `gz_ros2_control` cho Harmonic đã source, `px4_msgs` đã clone) và báo rõ cách sửa nếu thiếu.
+
+### Cài đặt từ đầu — clone-and-run toàn bộ pipeline M1–M3
+
+Trình tự tối thiểu để một máy mới clone về chạy được cả vòng drone-in-a-box:
+
+```bash
+# 0. Điều kiện tiên quyết (ngoài repo):
+#    - ROS 2 Humble đã cài + source
+#    - PX4-Autopilot đã checkout ở ~/PX4 và build được SITL
+#    - gz_ros2_control build TỪ NGUỒN cho Gazebo Harmonic (bản apt là Fortress,
+#      sẽ làm gz server segfault khi spawn box). Ví dụ ~/gz_ros2_control_ws.
+
+# 1. Clone vào cây PX4
+cd ~/PX4/examples
+git clone <repo-url> SITL_PrecisionLanding
+cd SITL_PrecisionLanding
+
+# 2. Đồng bộ tài nguyên mô phỏng sang cây PX4 (mục "Cấu Trúc Thư Mục" ở trên)
+cd ~/PX4 && rsync -a examples/SITL_PrecisionLanding/px4/Tools/simulation/gz/ Tools/simulation/gz/
+cd examples/SITL_PrecisionLanding
+
+# 3. px4_msgs (clone riêng, không nằm trong repo)
+git clone https://github.com/PX4/px4_msgs.git ros2_ws/src/px4_msgs
+
+# 4. Verify + tự cài dep + build libaruco + GIẢI NÉN MESH BOX
+source /opt/ros/humble/setup.bash
+./verify_build_env.sh          # dừng lại và sửa nếu nó báo FAIL/WARN
+
+# 5. Build workspace
+cd ros2_ws && colcon build --symlink-install && cd ..
+
+# 6. Chạy pipeline: xem "4. Drone-in-a-Box — Pipeline Đầy Đủ (M3)" ở dưới (6 terminal)
+```
+
+`box_manager`, `box_simulation`, `dib_msgs`, `precision_landing`,
+`aruco_fractal_tracker` đều đã nằm trong repo — bước 4 lo phần `libaruco` +
+mesh + dependency hệ thống. Chi tiết mốc M3: `docs/m3.md`.
+
+### Xử lý sự cố ArUco (`libaruco`)
+
+Thư viện fractal là **ArUco C++ 3.1.12** (không phải `opencv-contrib-python`), do
+`verify_build_env.sh` build từ `aruco_build/aruco.zip` vào `$HOME/.local`. Các trục
+trặc thường gặp và cách sửa:
+
+| Triệu chứng | Nguyên nhân & cách sửa |
+|---|---|
+| `colcon build` báo `Could not find a package configuration file provided by "aruco"` | Chưa build libaruco. Chạy lại `./verify_build_env.sh`; nó unzip + cmake + `make install` vào `$HOME/.local`. |
+| Build xong nhưng chạy tracker báo `error while loading shared libraries: libaruco.so.3.1` | Runtime chưa thấy `$HOME/.local/lib`. Thêm: `export LD_LIBRARY_PATH=$HOME/.local/lib:$LD_LIBRARY_PATH` (và cân nhắc bỏ vào `~/.bashrc`). |
+| `verify_build_env.sh` báo `Không tìm thấy file zip aruco_build/aruco.zip` | Clone thiếu file — kiểm `git lfs`/`.gitignore`; `aruco_build/aruco.zip` (1.6 MB) phải có trong repo. |
+| CMake tìm thấy libaruco cũ ở `/usr/local` gây version lệch | Gỡ bản cũ hoặc trỏ `CMAKE_PREFIX_PATH=$HOME/.local` khi build. |
+
+Kiểm nhanh libaruco đã cài: `find $HOME/.local /usr/local/lib -name 'libaruco.so*'`.
 
 ## Hoặc nếu bạn muốn tự cài đặt thủ công, hãy làm theo các bước dưới đây:
 

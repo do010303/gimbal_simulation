@@ -1,10 +1,16 @@
 # overlays/
 
-Files that belong to packages living **outside** this repository, kept here so
-that a fresh clone can reproduce the full drone-in-a-box simulation.
+> **RETIRED as of M3 (2026-07-29).** `box_simulation` is now **vendored directly**
+> into `ros2_ws/src/box_simulation`, so nothing here needs to be copied onto an
+> external package anymore — a fresh clone already has the correct
+> `box_spawn_only.launch.py` inside the package. This directory is kept only for
+> historical reference; the "Apply it with" step below is no longer necessary.
 
-Same idea as the `px4/` directory (which mirrors `~/PX4/Tools/simulation/gz`
-and is applied with `rsync`), but for the `box_simulation` package.
+Historically: files that belonged to packages living **outside** this repository,
+kept here so that a fresh clone could reproduce the full drone-in-a-box
+simulation — same idea as the `px4/` directory (which mirrors
+`~/PX4/Tools/simulation/gz` and is applied with `rsync`), but for the
+`box_simulation` package.
 
 ## box_simulation
 

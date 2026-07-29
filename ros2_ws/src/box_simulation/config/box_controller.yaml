@@ -1,0 +1,49 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+    joint_clamp_h_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    joint_clamp_v_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    
+    joint_lid_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+joint_clamp_h_controller:
+  ros__parameters:
+    joints:
+      - clamp_h_1_joint
+      # - clamp_v_1_joint
+    interface_name: position
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+joint_clamp_v_controller:
+  ros__parameters:
+    joints:
+      # - clamp_h_1_joint
+      - clamp_v_1_joint
+    interface_name: position
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+
+joint_lid_controller:
+  ros__parameters:
+    joints:
+      - lid_left_joint
+    interface_name: position
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
