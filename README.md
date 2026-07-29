@@ -650,7 +650,12 @@ ros2 topic echo /siyi/fractal_pose
 
 ---
 
-## 4. Drone-in-a-Box — Pipeline Đầy Đủ (M3.5 + M3.6)
+## 4. Drone-in-a-Box — Pipeline Đầy Đủ (M3)
+
+> **Mốc M3 — ✅ PASS 8/8 (2026-07-29), sai số hạ cánh thật 4.9 cm.** Mục này là
+> **dòng chạy** pipeline. Chi tiết đầy đủ (thiết kế bắt tay, hợp nhất world, khép
+> vòng đời, nhật ký bẫy, tiêu chí từng bước): **`docs/m3.md`**. File test:
+> **`docs/m3_box_handshake_test/`**.
 
 Toàn bộ hệ thống trong **một world Gazebo duy nhất**: drone `x500_gimbal` bắt
 tay với box qua service `dib_msgs`, box thật (khớp nắp + kẹp, điều khiển bằng
@@ -683,7 +688,8 @@ Ba launch file dùng để chạy, tất cả nằm trong `precision_landing`:
 |---|---|
 | `sitl_precland.launch.py` | gz bridge + tracker + `offboard_precland_controller` |
 | `sitl_mavros.launch.py` | MAVROS **có `use_sim_time`** (xem 4.6) |
-| `dib_bringup.launch.py` | adapter + FSM box + cầu telemetry + fixture GPS |
+| `dib_bringup.launch.py` | adapter + FSM box + cầu telemetry (**chỉ 3 node sản phẩm** — chạy nguyên xi trên phần cứng thật) |
+| `docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture GPS box, **chỉ SITL** (tách khỏi sản phẩm) |
 
 ### 4.2. Chuẩn bị
 
@@ -822,7 +828,8 @@ python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py   # cham diem 8 tieu 
 > tường trong khi ảnh camera mang dấu thời gian mô phỏng. Tracker phát hiện
 > được và vẽ đỏ `sync N/A: clock mismatch` — khi đó độ cao in trên HUD là pose
 > mới nhất, không phải pose ứng với khung hình đang xem.
-> Kiểm nhanh sau khi khởi động: `ros2 param get /mavros use_sim_time` → `True`.
+> Kiểm nhanh sau khi khởi động: `ros2 param get /mavros/mavros_node use_sim_time`
+> → `True` (node thật là `/mavros/mavros_node`, không phải `/mavros`).
 
 **Kiểm 3 thứ trước khi bay** — làm lúc này tốn 10 giây, phát hiện sau khi bay
 tốn cả một lượt chạy:
