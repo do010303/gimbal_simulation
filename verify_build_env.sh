@@ -165,13 +165,17 @@ if [ ! -f "$SCRIPT_DIR/ros2_ws/src/px4_msgs/package.xml" ]; then
 fi
 
 # 9. Camera gimbal — FOV quyết định cấu hình đã đo ra M3 PASS 8/8.
-GIMBAL_SDF="$HOME/PX4/Tools/simulation/gz/models/gimbal/model.sdf"
+# Repo nằm ở <px4>/examples/SITL_PrecisionLanding nên suy ra gốc cây PX4 từ
+# SCRIPT_DIR; ai để PX4 chỗ khác ~/PX4 vẫn kiểm đúng. Đặt PX4_DIR để ghi đè.
+PX4_DIR="${PX4_DIR:-$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd)}"
+[ -d "$PX4_DIR/Tools/simulation/gz" ] || PX4_DIR="$HOME/PX4"
+GIMBAL_SDF="$PX4_DIR/Tools/simulation/gz/models/gimbal/model.sdf"
 if [ -f "$GIMBAL_SDF" ]; then
     if grep -q "<horizontal_fov>1.4137</horizontal_fov>" "$GIMBAL_SDF"; then
         echo -e "${GREEN}[OK] Camera gimbal đúng FOV 1.4137 rad (81°)${NC}"
     else
         echo -e "${YELLOW}[WARN] Camera gimbal KHÔNG phải FOV 1.4137 rad.${NC} Chạy lại bước rsync overlay:"
-        echo    "         cd ~/PX4 && rsync -a examples/SITL_PrecisionLanding/px4/Tools/simulation/gz/ Tools/simulation/gz/"
+        echo    "         cd \"$PX4_DIR\" && rsync -a examples/SITL_PrecisionLanding/px4/Tools/simulation/gz/ Tools/simulation/gz/"
         DEP_WARN=1
     fi
 else

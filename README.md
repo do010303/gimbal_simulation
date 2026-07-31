@@ -12,14 +12,45 @@ vòng đời tới `CHARGING`** (mục 2). Chi tiết M3: `docs/m3.md`.
 ### 1.1. Điều kiện tiên quyết (ngoài repo)
 
 - ROS 2 Humble (đã source).
-- PX4-Autopilot checkout ở `~/PX4`, build được SITL.
-- **`gz_ros2_control` build TỪ NGUỒN cho Gazebo Harmonic.** Bản apt
-  `ros-humble-gz-ros2-control` là cho Fortress → gz server **segfault** khi spawn
-  box (plugin system Harmonic nạp plugin hardware Fortress qua pluginlib). Gỡ cho chắc:
-  ```bash
-  apt-cache rdepends --installed ros-humble-gz-ros2-control   # phải RỖNG
-  sudo apt remove ros-humble-gz-ros2-control
-  ```
+- **Gazebo Harmonic** (`gz sim --version` → 8.x). Đã kiểm trên 8.11.0.
+- PX4-Autopilot checkout ở `~/PX4`, build được SITL. Để chỗ khác cũng chạy —
+  chỉ cần thay `~/PX4` trong mọi lệnh dưới đây cho khớp.
+- **`gz_ros2_control` build TỪ NGUỒN cho Harmonic** (mục 1.1.1).
+
+#### 1.1.1. Build `gz_ros2_control` cho Harmonic
+
+Bản apt `ros-humble-gz-ros2-control` là cho **Fortress**. Để nguyên thì gz server
+**segfault ngay khi spawn box**: plugin *system* (Harmonic) nạp plugin *hardware*
+qua pluginlib và vớ phải bản Fortress — `v8::EntityComponentManager` truyền vào
+hàm nhận `v6::`. Chi tiết ở "Bẫy P1.4" trong `docs/m3.md`.
+
+```bash
+# 1. Gỡ bản apt Fortress (kiểm không gói nào phụ thuộc — kết quả phải RỖNG)
+apt-cache rdepends --installed ros-humble-gz-ros2-control
+sudo apt remove ros-humble-gz-ros2-control
+
+# 2. Build từ nguồn, nhánh humble
+mkdir -p ~/gz_ros2_control_ws/src && cd ~/gz_ros2_control_ws/src
+git clone -b humble https://github.com/ros-controls/gz_ros2_control.git
+cd ~/gz_ros2_control_ws
+
+# 3. GZ_VERSION QUYẾT ĐỊNH build cho Harmonic hay Fortress — phải export TRƯỚC
+#    (CMakeLists đọc $ENV{GZ_VERSION}: 'harmonic' -> gz-sim8, mặc định -> Fortress)
+export GZ_VERSION=harmonic
+rosdep install -r --from-paths src -i -y --rosdistro humble
+colcon build --symlink-install
+```
+
+Kiểm — cả **hai** `.so` phải cùng là bản Harmonic vừa build:
+```bash
+ls ~/gz_ros2_control_ws/install/gz_ros2_control/lib/libgz_ros2_control-system.so \
+   ~/gz_ros2_control_ws/install/gz_ros2_control/lib/libgz_hardware_plugins.so
+dpkg -l ros-humble-gz-ros2-control 2>/dev/null | grep '^ii' && echo "!! bản apt Fortress VẪN CÒN"
+```
+
+> **Không gỡ bản apt thì vẫn chạy được** nếu terminal chạy `make px4_sitl` đã
+> source ws này trước (mục 2.2) — nhưng chỉ cần một terminal quên source là
+> segfault quay lại. Gỡ hẳn thì hết đường nạp nhầm.
 
 ### 1.2. Clone-and-run (M1–M3)
 
@@ -119,12 +150,20 @@ cd ros2_ws && colcon build --symlink-install --packages-select aruco_fractal_tra
 
 ```bash
 pkill -f 'px4|gz sim|gzserver|ruby.*gz|robot_state_publisher|spawner|controller_manager'
-pkill -f 'mavros|offboard_precland|aruco_fractal|box_state_manager'
+pkill -f 'mavros|offboard_precland|aruco_fractal|box_state_manager|box_hardware'
+ros2 daemon stop            # QUAN TRỌNG — xem bên dưới
 sleep 2; pgrep -af 'px4|gz sim' || echo "sach"
 ```
 
 Bỏ qua bước này là nguyên nhân phổ biến nhất khiến máy lag và lần chạy sau hỏng
 theo kiểu khó hiểu (giữ UDP endpoint / quyền điều khiển gimbal từ phiên trước).
+
+> **`ros2 daemon stop` không phải cho vui.** Daemon cache thông tin discovery
+> giữa các phiên và các `ROS_DOMAIN_ID`. Daemon cũ còn sống thì `ros2 node list`
+> / `ros2 topic list` / `ros2 topic echo` **im lặng trả về rỗng** dù node đang
+> chạy ngon — đúng những lệnh mà 3 bước kiểm tiền bay ở mục 2.4 dựa vào, nên rất
+> dễ kết luận nhầm là pipeline hỏng. Nghi ngờ thì thêm `--no-daemon` vào lệnh
+> `ros2` để hỏi thẳng, bỏ qua cache.
 
 ---
 
@@ -196,6 +235,16 @@ cd ~/PX4 && PX4_GZ_NO_FOLLOW=1 make px4_sitl gz_x500_gimbal_fractal_aruco_landin
 >   **nối thêm** chứ không ghi đè nên export trước là an toàn.
 > - `PX4_GZ_NO_FOLLOW=1` — bỏ khoá camera Gazebo theo drone. Quên thì:
 >   `gz topic -t /gui/track -m gz.msgs.CameraTrack -p "track_mode: NONE"`.
+
+> **Không có màn hình vẫn chạy được cả vòng.** Thêm `HEADLESS=1` để gz chạy
+> server không GUI — hợp cho máy chủ, WSL, hay chạy tự động:
+> ```bash
+> cd ~/PX4 && HEADLESS=1 PX4_GZ_NO_FOLLOW=1 make px4_sitl gz_x500_gimbal_fractal_aruco_landing
+> ```
+> Đã kiểm: vòng khép kín tới `CHARGING` chạy trọn ở chế độ này. Camera của drone
+> vẫn render bình thường (tracker vẫn nhận đủ ảnh 1280×720), chỉ mất cửa sổ
+> Gazebo — nên tiêu chí "nhìn thấy marker" của Giai đoạn A phải kiểm qua
+> `rqt_image_view /gimbal_camera` hoặc log tracker thay vì nhìn mắt.
 
 Đợi tới dấu nhắc `pxh>` rồi mới sang Terminal 2.
 
