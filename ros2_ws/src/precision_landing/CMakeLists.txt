@@ -115,21 +115,6 @@ rclcpp_components_register_nodes(mavros_to_dib_telemetry_node "precision_landing
 add_executable(mavros_to_dib_telemetry src/mavros_to_dib_telemetry_node_main.cpp)
 target_link_libraries(mavros_to_dib_telemetry mavros_to_dib_telemetry_node)
 
-# ── AE Analyzer Executable (Disabled) ──────────────────────────────────
-# add_executable(ae_analyzer src/ae_analyzer.cpp)
-# target_link_libraries(ae_analyzer "${ARUCO_LIBRARY}")
-# ament_target_dependencies(ae_analyzer
-#   rclcpp
-#   sensor_msgs
-#   cv_bridge
-#   OpenCV
-# )
-# install(
-#   TARGETS
-#     ae_analyzer
-#   RUNTIME DESTINATION lib/${PROJECT_NAME}
-# )
-
 # ── 4. Install Python Tools ───────────────────────────────────────────
 install(
   PROGRAMS

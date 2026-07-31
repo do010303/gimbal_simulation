@@ -108,7 +108,7 @@ thân box, và kiểm `px4_msgs`/`gz_ros2_control`.
 > `verify_build_env.sh` tự gunzip trước build. Box **vô hình** sau build ⇒ chưa
 > gunzip, chạy lại verify. (Mesh nắp/kẹp nhỏ nằm thẳng trong repo; `base_link_1.dae`
 > bỏ vì không dùng. `box_manager`/`box_simulation` được vendor thẳng vào
-> `ros2_ws/src/`; `overlays/` chỉ còn để tham chiếu lịch sử.)
+> `ros2_ws/src/`.)
 
 ### 1.3. Cài gói thủ công (nếu không chạy verify script)
 
@@ -295,7 +295,7 @@ launch, fixture SITL tách riêng.
 | 3 | `ros2 launch precision_landing sitl_precland.launch.py` | bridge + tracker + controller |
 | 4 | `ros2 launch precision_landing sitl_mavros.launch.py` | MAVROS (đồng hồ mô phỏng) |
 | 5 | `ros2 launch precision_landing dib_bringup.launch.py` | **cả 3 node phía box** trong một terminal |
-| 6 | `ros2 launch $PWD/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture **chỉ SITL** |
+| 6 | `ros2 launch ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture **chỉ SITL** |
 
 > **T4 dùng `sitl_mavros.launch.py`, KHÔNG dùng `mavros px4.launch`.** `px4.launch`
 > không khai báo arg `use_sim_time` nên truyền vào bị **bỏ qua im lặng**: MAVROS
