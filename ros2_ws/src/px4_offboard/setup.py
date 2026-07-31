@@ -26,9 +26,7 @@ setup(
             'offboard_precland_controller = px4_offboard.offboard_precland_controller:main',
             'box_hybrid_precision_lander = px4_offboard.box_hybrid_precision_lander:main',
             'box_hybrid_status_monitor = px4_offboard.box_hybrid_status_monitor:main',
-            'sim_box_manager = px4_offboard.sim_box_manager:main',
             'mock_box_hardware = px4_offboard.mock_box_hardware:main',
-            'mavros_to_dib_telemetry = px4_offboard.mavros_to_dib_telemetry:main',
         ],
     },
 )

@@ -163,8 +163,11 @@ def generate_launch_description():
         output="log",
     )
 
+    # The C++ node in precision_landing, not a px4_offboard copy: it is a strict
+    # superset (same drone_id / topics, plus the power-off subscription) and its
+    # publisher QoS is tuned to match box_manager's subscriber.
     mavros_to_dib_telemetry_node = Node(
-        package="px4_offboard",
+        package="precision_landing",
         executable="mavros_to_dib_telemetry",
         name="mavros_to_dib_telemetry",
         parameters=[{"drone_id": LaunchConfiguration("drone_id")}],

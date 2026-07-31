@@ -523,7 +523,8 @@ ros2 service call /d1/mission_upload dib_msgs/srv/MissionUpload "{mission: [
 ### 3.6. Box Hybrid Landing (prototype)
 
 FSM hybrid thay lander cũ, dùng chung PX4 SITL / MAVROS / tracker. Box thật thay
-bằng `sim_box_manager` (`/sim_box/state`). T3 đổi sang:
+bằng `mock_box_hardware` + `box_manager`, lander đọc trạng thái qua
+`/b<box_id>/telemetry` (`dib_msgs/BoxTelemetry`) — launch lo hết. T3 đổi sang:
 ```bash
 ros2 launch px4_offboard box_hybrid_landing.launch.py
 ros2 topic pub --once /box_hybrid_landing/trigger std_msgs/msg/String "data: 'land'"
