@@ -479,7 +479,25 @@ cùng kích thước. Nếu PX4 không ở `~/PX4`, truyền
 
 Controller dùng ENU (`search_x=East`, `search_y=North`; `pos_enu/target_enu/…` đều ENU).
 
-### 3.1. Bài bay tự động qua service
+### 3.1. Để PX4 tự hạ cánh thay vì offboard
+
+Hai kiến trúc khác nhau cho cùng một việc, dùng chung tracker C++:
+
+| | Ai điều khiển | T3 launch |
+|---|---|---|
+| **Offboard** (mặc định) | `offboard_precland_controller` bơm setpoint qua MAVROS | `sitl_precland.launch.py` |
+| **PX4 native** | `landing_target_bridge` đẩy `LandingTarget` (LOCAL_NED), **PX4 tự hạ** | `sitl_px4_precland.launch.py` |
+
+```bash
+# T3 thay bằng:
+ros2 launch precision_landing sitl_px4_precland.launch.py
+```
+`landing_target_bridge` chỉ dịch `LandingTarget6D` của tracker sang
+`mavros_msgs/LandingTarget`; toàn bộ vòng điều khiển nằm trong PX4. Hữu ích khi
+cần đối chiếu chất lượng hạ cánh của PX4 với nhánh offboard, hoặc khi không được
+phép dùng OFFBOARD.
+
+### 3.2. Bài bay tự động qua service
 
 ```bash
 # T5:
@@ -494,7 +512,7 @@ ros2 service call /d1/mission_upload dib_msgs/srv/MissionUpload "{mission: [
 ]}"
 ```
 
-### 3.2. Camera thật (RTSP, không cần PX4)
+### 3.3. Camera thật (RTSP, không cần PX4)
 
 Kiểm nhận diện của camera vật lý (SIYI A8 Mini / camera IP) mà chưa cần SITL/FCU:
 ```bash

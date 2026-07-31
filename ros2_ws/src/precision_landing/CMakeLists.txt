@@ -123,6 +123,16 @@ install(
   RENAME fractal_tracking_csv_logger
 )
 
+# Feeds PX4's OWN precision landing over MAVROS LandingTarget, instead of the
+# offboard setpoints offboard_precland_controller sends. Different architecture,
+# same tracker -- kept as the alternative landing path, see sitl_px4_precland.
+install(
+  PROGRAMS
+    scripts/landing_target_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME landing_target_bridge
+)
+
 # ── 5. Install Targets ────────────────────────────────────────────────
 install(
   DIRECTORY include/${PROJECT_NAME}
