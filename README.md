@@ -145,21 +145,33 @@ cd ros2_ws && colcon build --symlink-install --packages-select precision_landing
 ### 1.5. Dọn tiến trình cũ (chạy trước mỗi lần bắt đầu)
 
 ```bash
-pkill -f 'px4|gz sim|gzserver|ruby.*gz|robot_state_publisher|spawner|controller_manager'
-pkill -f 'mavros|offboard_precland|aruco_fractal|box_state_manager|box_hardware'
-ros2 daemon stop            # QUAN TRỌNG — xem bên dưới
-sleep 2; pgrep -af 'px4|gz sim' || echo "sach"
+./scripts/stop_pipeline.sh      # phải in ra: sach
 ```
 
-Bỏ qua bước này là nguyên nhân phổ biến nhất khiến máy lag và lần chạy sau hỏng
+Script in số tiến trình đã dừng, SIGKILL những con lì (gz sim hay lì), dừng luôn
+`ros2 daemon`, rồi **kiểm lại** và chỉ in `sach` khi thật sự không còn gì.
+
+> **ĐỪNG gõ thẳng `pkill -f 'px4|gz sim|...'` — lệnh đó tự sát.** `pkill -f` so
+> khớp với **toàn bộ dòng lệnh** của mọi tiến trình, kể cả dòng lệnh của chính
+> cái shell vừa gõ nó, vì dòng đó có chứa chuỗi `px4|gz sim|...`. Shell chết
+> ngay ở `pkill` đầu tiên, lệnh `pkill` thứ hai **không bao giờ chạy**, và:
+> ```
+> Đo thật: gõ pkill -> terminal im -> tưởng đã dọn xong
+>          nhưng px4 + gz sim + 16 node khác vẫn sống, ăn ~5 GB và đẩy 3 GB xuống swap
+> ```
+> Đây là lý do "đã tắt hết rồi mà vẫn ngốn RAM". Script trên đặt chuỗi pattern
+> trong **biến** (không nằm trên dòng lệnh) và loại trừ tường minh chính nó cùng
+> mọi tiến trình cha.
+
+Bỏ qua bước dọn là nguyên nhân phổ biến nhất khiến máy lag và lần chạy sau hỏng
 theo kiểu khó hiểu (giữ UDP endpoint / quyền điều khiển gimbal từ phiên trước).
 
-> **`ros2 daemon stop` không phải cho vui.** Daemon cache thông tin discovery
-> giữa các phiên và các `ROS_DOMAIN_ID`. Daemon cũ còn sống thì `ros2 node list`
-> / `ros2 topic list` / `ros2 topic echo` **im lặng trả về rỗng** dù node đang
-> chạy ngon — đúng những lệnh mà 3 bước kiểm tiền bay ở mục 2.4 dựa vào, nên rất
-> dễ kết luận nhầm là pipeline hỏng. Nghi ngờ thì thêm `--no-daemon` vào lệnh
-> `ros2` để hỏi thẳng, bỏ qua cache.
+> **Vì sao script dừng cả `ros2 daemon`.** Daemon cache thông tin discovery giữa
+> các phiên và các `ROS_DOMAIN_ID`. Daemon cũ còn sống thì `ros2 node list` /
+> `ros2 topic list` / `ros2 topic echo` **im lặng trả về rỗng** dù node đang chạy
+> ngon — đúng những lệnh mà 3 bước kiểm tiền bay ở mục 2.4 dựa vào, nên rất dễ
+> kết luận nhầm là pipeline hỏng. Nghi ngờ thì thêm `--no-daemon` vào lệnh `ros2`
+> để hỏi thẳng, bỏ qua cache.
 
 ---
 
