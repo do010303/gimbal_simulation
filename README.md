@@ -74,7 +74,7 @@ chmod +x verify_build_env.sh && ./verify_build_env.sh     # dừng và sửa n�
 # 5. Build
 cd ros2_ws && colcon build --symlink-install && source install/setup.bash && cd ..
 
-# 6. Chạy pipeline drone-in-a-box: xem mục 2 (6 terminal)
+# 6. Chạy pipeline drone-in-a-box: xem mục 2 (7 terminal)
 ```
 
 `box_manager`, `box_simulation`, `dib_msgs`, `precision_landing`,
@@ -285,9 +285,9 @@ ros2 topic pub -r 2 -t 6 /joint_lid_controller/joint_trajectory \
 
 Nhìn vào lòng box: phải thấy ô marker fractal đen-trắng trên mặt sàn.
 
-### 2.4. Giai đoạn B — vòng kín (thêm 4 terminal)
+### 2.4. Giai đoạn B — vòng kín (thêm 5 terminal)
 
-Giữ nguyên Terminal 1 và 2. Tổng **6 terminal**: ba node phía box gom vào một
+Giữ nguyên Terminal 1 và 2. Tổng **7 terminal**: ba node phía box gom vào một
 launch, fixture SITL tách riêng.
 
 | T | Lệnh | Vai trò |
@@ -296,6 +296,12 @@ launch, fixture SITL tách riêng.
 | 4 | `ros2 launch precision_landing sitl_mavros.launch.py` | MAVROS (đồng hồ mô phỏng) |
 | 5 | `ros2 launch precision_landing dib_bringup.launch.py` | **cả 3 node phía box** trong một terminal |
 | 6 | `ros2 launch ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture **chỉ SITL** |
+| 7 | `ros2 run rqt_image_view rqt_image_view /landing/annotated_image` | **HUD giám sát** |
+
+> **T7 là cửa sổ nên mở suốt lượt chạy.** HUD trả lời cả hai câu quyết định một
+> lượt drone-in-a-box: *drone có thấy marker chưa* (`Marker Dist / IDs`) và *box
+> đã mở nắp chưa* (`BOX: <STATE>`, xanh lá ở `WAITING_FOR_LANDING(7)`). Cách đọc
+> từng dòng: `ros2_ws/src/precision_landing/README.md`.
 
 > **T4 dùng `sitl_mavros.launch.py`, KHÔNG dùng `mavros px4.launch`.** `px4.launch`
 > không khai báo arg `use_sim_time` nên truyền vào bị **bỏ qua im lặng**: MAVROS
@@ -317,11 +323,9 @@ Lệnh 1 là **bằng chứng** (đo lệch thật giữa dấu thời gian ản
 xác nhận nguyên nhân. `/mavros` tự nó không tồn tại — `ros2 param get /mavros ...`
 trả `Node not found` là sai tên node, không phải MAVROS hỏng.
 
-Giám sát (mở khi cần):
+Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal):
 ```bash
-ros2 run rqt_image_view rqt_image_view /precision_landing/debug_image
-ros2 topic echo --field data /landing/pose_sync_ms          # ms; -1 = lệch đồng hồ
-python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py  # chấm điểm 8 tiêu chí
+python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py   # 8 tiêu chí M3
 ```
 
 **Bay**, trong `pxh>` của Terminal 1:
@@ -351,7 +355,7 @@ grep 'Box in' /tmp/bringup.log  # mỗi state đúng MỘT dòng
 2. **Box phải có toạ độ GPS.** `box_state_manager` đọc vị trí box từ topic `gps`
    (`sensor_msgs/NavSatFix`). SITL **không ai publish** (sensor `navsat` của
    `box_simulation` chưa có `ros_gz_bridge`) → `box_info.lat/lon = 0`,
-   `st_goto_box()` tính setpoint cách hàng nghìn km, drone bay mất. Fixture T6
+   `st_goto_box()` tính setpoint cách hàng nghìn km, drone bay mất. Fixture SITL
    publish `/gps` tại marker ENU `(2.5129, −2.5896)`: `lat 47.397947795 lon 8.546197088`.
 
 3. **`marker_size` phải khớp plane thật.** `marker.png` có viền trắng 1 module nên
@@ -360,9 +364,10 @@ grep 'Box in' /tmp/bringup.log  # mỗi state đúng MỘT dòng
    Đổi một số phải đổi số kia, nếu không pose sai **thang đo** → sai độ cao → flare
    sớm hoặc cắm xuống.
 
-### 2.6. Dấu hiệu chạy đúng
+### 2.6. Kiểm lượt chạy có đạt không
 
-FSM drone và box đan xen theo đúng quan hệ nhân quả:
+Một lượt đạt phải thấy FSM hai bên đan xen đúng nhân quả, và **kết thúc ở
+`CHARGING`**:
 ```
 DRONE  -> GOTO_BOX -> PRELANDING_CHECK -> WAIT_BOX_READY
 BOX    -> PREPARING_FOR_LANDING(6) -> WAITING_FOR_LANDING(7)
@@ -370,75 +375,14 @@ DRONE  -> START -> HORIZONTAL_APPROACH -> DESCEND_ABOVE_TARGET -> FINAL_APPROACH
 MAVROS -> landed_state=ON_GROUND
 BOX    -> SECURING_DRONE(8) -> CHARGING(9)
 ```
-- Box chỉ rời `EMPTY` **sau** khi drone vào `WAIT_BOX_READY` → chính `REQUEST_LANDING` của drone gây ra.
-- Drone chỉ vào `START` **sau** khi box báo `WAITING_FOR_LANDING` → không chạy trước nắp box.
-- **Không có** `SEARCH` kéo dài, **không có** `FALLBACK`.
+Sau khi drone chạm đất **còn ~35–40 giây nữa** box mới kẹp xong, đóng nắp và
+sang `CHARGING` — đừng Ctrl+C sớm.
 
-Vòng đời khép tới `CHARGING` — **sau khi drone chạm đất còn ~35–40 giây nữa**,
-đừng tắt sớm:
-```
-offboard_precland: LANDING COMPLETE — disarmed. Waiting for box to secure and charge.
-box_state_manager: Box in SECURING_DRONE state, securing state: 5   (kẹp + đóng nắp)
-offboard_precland: BoxLink: sending TURN_OFF_DRONE to b2 (agent_id=12)
-box_hardware_adapter: /dock/power_button/cmd command=0 -> drone power OFF
-mavros_to_dib_telemetry: Dock power OFF: stopping publishing d1/telemetry
-box_state_manager: Box in CHARGING state
-offboard_precland: Box reached CHARGING — drone-in-a-box cycle complete
-```
-`TURN_OFF_DRONE` gửi lặp mỗi 3 giây là **đúng thiết kế** (idempotent, box giữ như
-cờ dính, chỉ tiêu thụ khi kẹp/nắp đóng xong).
+> **Đọc log và chẩn đoán khi có gì đó lệch:** các dòng log trông như lỗi nhưng
+> không phải, cách đọc HUD, latency vs lệch đồng hồ, cách đọc sai số hạ cánh —
+> tất cả ở **`ros2_ws/src/precision_landing/README.md`**.
 
-> **Vì sao phải giả lập cú cắt điện.** `box_manager` rời `POWER_OFF → DONE` (rồi
-> `CHARGING`) khi telemetry drone **im quá 5 giây**. Phần cứng thật: box cắt nguồn
-> nên máy đồng hành tắt, im lặng miễn phí. SITL: MAVROS chạy mãi, nên adapter
-> publish `/dock/drone_power` và `mavros_to_dib_telemetry` ngừng phát khi nhận
-> `false`. Thiếu mắt xích này thì box kẹt ở `POWER_OFF` vĩnh viễn.
-
-Dòng `Ground contact: blocked by 20.5cm → force-disarm` **không phải lỗi**: drone
-dừng cao hơn mặt đất 0.6 m vì đang đứng trên box; nhánh force-disarm xử lý đúng.
-Marker fractal tự rụng tầng theo độ cao (`ids=[0,1,2]` trên cao → `ids=[1,2]` ở
-~0.65 m khi tầng ngoài 0.50 m ra khỏi khung).
-
-### 2.7. Đọc HUD và số latency cho đúng (quan trọng khi chạy HITL)
-
-`E2E latency (image → debug) = now() − image_stamp` **chỉ là độ trễ khi hai đầu
-chung một đồng hồ**. Nếu camera đóng dấu bằng đồng hồ riêng hoặc NTP lệch, cùng
-phép trừ ấy cho ra **độ lệch đồng hồ** trông y hệt độ trễ khổng lồ — lý do HITL
-báo e2e latency rất lớn trên máy nhúng trong khi `Detector processing` (đo bằng
-`steady_clock`, miễn nhiễm) chỉ vài ms. Phân biệt bằng **hình dạng**:
-
-| | sàn (floor) | dao động (jitter) |
-|---|---|---|
-| Độ trễ thật | nhỏ | thấy rõ, đổi từng khung |
-| Lệch đồng hồ | lớn | gần bằng 0 |
-
-Tracker theo dõi sàn trượt 10 giây và tự gắn cờ (`[CLOCK OFFSET? floor=2478 jitter=2]`);
-thấy cờ này thì **đừng đi tối ưu hiệu năng**, hãy đồng bộ thời gian trước. Cửa sổ
-chấp nhận đã siết từ 60 s xuống 2 s.
-
-`UAV ENU U` và `MARKER DIST` **không bằng nhau, và đó là đúng** — đo từ hai gốc:
-`U` từ điểm **cất cánh**, `MARKER DIST` từ **camera** tới marker trên nóc box.
-```
-U − MARKER DIST ≈ cao độ marker − cao độ camera so với base_link ≈ 0.637 − 0.118 = 0.52 m
-```
-(0.118 đọc từ model: gimbal `z=+0.28`, sensor `z=−0.162` → camera cao hơn base_link
-0.118 m. Log bay giữ hiệu này **hằng số 0.48–0.54 m** — hằng số chứ không tỷ lệ,
-loại trừ sai `marker_size`.)
-
-Mỗi độ cao có tên riêng: `alt_agl` (so điểm cất cánh, dùng ở `[YAW-3D]`/`FINAL_APPROACH`),
-`alt_pad` (so marker, dùng ở `APPROACH`/`DESCEND`). Vị trí tách chủ thể:
-```
-FINAL_APPROACH: t=1.2s drone=(2.51,-2.59, alt_agl 0.621m) aim=(2.52,-2.50) ...
-TOUCHDOWN: drone=(2.5104,-2.5863) aim=(2.5200,-2.5000) aim_error=0.090m alt_agl=0.664m
-```
-`drone=` là vị trí thật; `aim=` là điểm ngắm (ước lượng marker của tracker). Sai số
-hạ cánh THẬT = `drone=` (dòng `TOUCHDOWN`) trừ marker thật `(2.5129, −2.5896)`;
-`aim_error` là chất lượng bám của vòng điều khiển.
-
-> Các số "sai số hạ cánh" ghi **trước 2026-07-23** lấy từ `final_xy` = điểm ngắm,
-> nên thực ra là sai số **ước lượng marker của tracker** — đừng so với `TOUCHDOWN`.
-
-### 2.8. Chỉnh hướng đậu của drone (`marker_yaw`)
+### 2.7. Chỉnh hướng đậu của drone (`marker_yaw`)
 
 Tracker suy một góc yaw từ marker và controller khoá drone vào đó — **xoay marker
 là xoay hướng drone đậu**. Mặc định `marker_yaw = 1.5708` (90°). Đổi ngay trên
@@ -453,11 +397,41 @@ giữa hai cặp kẹp.
 > và world X (0.782 m) nên thân drone phải nằm dọc hai trục đó. Chọn theo mắt nhìn
 > nắp có thể lệch 90° so với kẹp.
 
-### 2.9. Giới hạn đã biết
+### 2.8. Giới hạn đã biết
 
-`box_simulation` chưa có `ros_gz_bridge` cho sensor `navsat`, nên trong SITL vẫn
-phải dùng node fixture publish `/gps` (mục 2.5). Trên phần cứng thật, box có GPS
-thật nên không cần fixture.
+**Fixture GPS.** `box_simulation` chưa có `ros_gz_bridge` cho sensor `navsat`,
+nên trong SITL vẫn phải dùng node fixture publish `/gps` (mục 2.5). Trên phần
+cứng thật box có GPS thật nên không cần fixture.
+
+**Tốn RAM — gần như toàn bộ là mesh visual của box.** Đo trên máy 16 GB
+(PSS, không phải RSS):
+
+| | RAM |
+|---|---|
+| `gz sim` khi mới có drone + world | **509 MB** |
+| `gz sim` sau khi spawn box + marker | **2005 MB** |
+| Tất cả node ROS còn lại cộng lại | ~530 MB |
+| **Cả pipeline** | **~2.5 GB** |
+
+Chênh 1.5 GB đó đến từ **một file**: `BOX PAD1.0_simple.dae` — **3.58 triệu tam
+giác**, và nó **chỉ dùng để nhìn** (collision của box là các khối hộp riêng
+trong `box.xacro`). Máy dưới 8 GB nên giảm mesh trước khi chạy:
+
+```bash
+# ví dụ với blender: giảm còn ~2% số tam giác rồi ghi đè file .dae
+blender --background --python-expr "
+import bpy; bpy.ops.wm.collada_import(filepath='BOX PAD1.0_simple.dae')
+for o in bpy.context.scene.objects:
+    if o.type=='MESH':
+        m=o.modifiers.new('d','DECIMATE'); m.ratio=0.02
+        bpy.context.view_layer.objects.active=o
+        bpy.ops.object.modifier_apply(modifier='d')
+bpy.ops.wm.collada_export(filepath='BOX PAD1.0_simple.dae')"
+```
+Mesh này là bản vendor của team khác nên repo giữ nguyên bản gốc; giảm xong nhớ
+gzip lại (`gzip -k`) vì repo ship bản `.dae.gz`.
+
+`HEADLESS=1` (mục 2.3) cũng bỏ hẳn tiến trình GUI của Gazebo.
 
 ---
 
@@ -482,9 +456,12 @@ source /opt/ros/humble/setup.bash
 source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
 ros2 launch <package> <launch-file>
 
-# T4 — HUD overlay:
-ros2 run rqt_image_view rqt_image_view      # chọn topic /landing/annotated_image
+# T4 — HUD giám sát (mở suốt lượt chạy, cùng topic với pipeline M3):
+ros2 run rqt_image_view rqt_image_view /landing/annotated_image
 ```
+
+> HUD giống hệt mục 2, chỉ khác dòng `BOX:` sẽ hiện `no telemetry` vì các pipeline
+> legacy không chạy phía box. Cách đọc: `ros2_ws/src/precision_landing/README.md`.
 
 Các launch T3 **không** khởi động MAVROS; sửa/restart tracker hoặc lander thì chỉ
 restart T3, giữ nguyên T2 để PX4 vẫn nhận heartbeat mission computer.
@@ -556,38 +533,15 @@ ros2 launch siyi_camera_bridge real_fractal_detect.launch.py enable_mavros:=fals
 
 ---
 
-## 4. Giám sát, kiểm tra nhanh, ghi chú
+## 4. Ghi chú chung
 
-### 4.1. Kiểm tra nhanh các topic
-
-```bash
-source /opt/ros/humble/setup.bash
-source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
-
-ros2 topic hz /gimbal_camera                          # camera bridge
-ros2 topic hz /landing/target_camera                  # tracker target
-ros2 topic echo --once /landing/target_camera
-ros2 topic hz /mavros/setpoint_position/local         # setpoint (timer 30Hz, cần ≥20Hz khi OFFBOARD)
-ros2 topic echo --once /mavros/state                  # connected: true
-ros2 topic echo /lander/state                         # FSM lander (legacy)
-```
-
-### 4.2. Dấu hiệu thành công (legacy pipelines)
-
-```text
-Marker detected
-State: SEARCH -> HORIZONTAL_APPROACH -> DESCEND_OVER_TARGET
-Final altitude reached
-PX4 land detector reports landed
-LANDING COMPLETE
-```
-Không dùng force-disarm làm tiêu chuẩn thành công khi chạy thật. Quy trình nghiệm
-thu Fractal ArUco + sơ đồ FSM: `docs/FLIGHT_TEST.md`, `docs/fractal_aruco_fsm.png`.
-
-### 4.3. Ghi chú
-
-- Thống nhất mọi marker chính về `0.50 m` (`marker_size:=0.50`); đổi physical size
-  trong `model.sdf` thì phải đổi `marker_size` trong launch tương ứng.
-- `command 520 unsupported` là capability request MAVLink cũ, không phải lệnh landing.
-- Đang giữ OFFBOARD / giữa chuyến bay: **không restart MAVROS** — giữ T2 riêng, chỉ
-  restart T3. Restart MAVROS lúc đó có thể gây `Critical: Connection to mission computer lost`.
+- **Chẩn đoán, đọc log, đọc HUD:** `ros2_ws/src/precision_landing/README.md`.
+  Phía box: `ros2_ws/src/box_manager/README.md`,
+  `ros2_ws/src/box_hardware_adapter/README.md`.
+- Thống nhất mọi marker chính về `0.50 m` (`marker_size:=0.50`); đổi kích thước
+  trong `model.sdf` thì phải đổi `marker_size` tương ứng.
+- Đang giữ OFFBOARD / giữa chuyến bay: **không restart MAVROS** — giữ terminal
+  MAVROS riêng và chỉ restart terminal tracker. Restart MAVROS lúc đó có thể gây
+  `Critical: Connection to mission computer lost`.
+- Quy trình nghiệm thu Fractal ArUco + sơ đồ FSM: `docs/FLIGHT_TEST.md`,
+  `docs/fractal_aruco_fsm.png`.
