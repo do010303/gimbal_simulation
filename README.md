@@ -55,7 +55,17 @@ thân box, và kiểm `px4_msgs`/`gz_ros2_control`.
 > ```bash
 > ls ~/PX4/Tools/simulation/gz/worlds/fractal_aruco_landing.sdf
 > ls ~/PX4/Tools/simulation/gz/models/{fractal_aruco_marker,dib_box_marker}/model.sdf
+> grep horizontal_fov ~/PX4/Tools/simulation/gz/models/gimbal/model.sdf   # phải là 1.4137
 > ```
+> **Camera gimbal phải có `horizontal_fov` = 1.4137 rad (81°), 1280×720.** Bản
+> upstream của submodule `Tools/simulation/gz` để `2.0` rad (114.6°) — rsync ở
+> bước 2 ghi đè lại đúng giá trị. Sai FOV thì marker chiếm ít pixel hơn ~1.8 lần
+> ở cùng khoảng cách: tracker vẫn chạy (nó lấy nội tham số từ `camera_info` nên
+> ước lượng pose vẫn tự nhất quán), nhưng tầm bắt marker và các ngưỡng
+> approach/descend đã tinh chỉnh trong `offboard_precland_params.yaml` **không
+> còn là cấu hình đã đo ra PASS 8/8**. Đây cũng là FOV mà `aruco_fractal_tracker`
+> ghi cứng làm giá trị dự phòng (`fx = fy = 749.338`).
+>
 > World `fractal_aruco_landing.sdf` **không còn** `<include> dib_box_landing_pad`:
 > marker giờ nằm trên box khớp động (`box_simulation`), spawn bằng
 > `box_spawn_only.launch.py`. Để cả hai sẽ có **hai marker giống hệt** → tracker

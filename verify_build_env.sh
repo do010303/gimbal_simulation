@@ -146,19 +146,46 @@ for pkg in box_manager box_simulation; do
     fi
 done
 [ $DEP_FAIL -eq 0 ] && echo -e "${GREEN}[OK] box_manager và box_simulation đã có trong repo${NC}"
+DEP_WARN=0
 # 8b. gz_ros2_control (Harmonic) — bắt buộc cho ros2_control của box.
 if ! ros2 pkg list 2>/dev/null | grep -qx "gz_ros2_control"; then
     echo -e "${YELLOW}[WARN] Chưa thấy gz_ros2_control trong môi trường ROS.${NC}"
     echo    "       Build từ nguồn cho Gazebo Harmonic rồi source trước khi chạy box:"
     echo    "         source ~/gz_ros2_control_ws/install/setup.bash"
     echo    "       (bản apt ros-humble-gz-ros2-control là cho Fortress → gz server segfault khi spawn box)"
+    DEP_WARN=1
 fi
-# 8c. px4_msgs — clone riêng (giữ nguyên cơ chế cũ).
+# 8c. px4_msgs — clone riêng (giữ nguyên cơ chế cũ). Chỉ 'px4_offboard' (pipeline
+# legacy mục 3) import nó lúc CHẠY; build vẫn xanh khi thiếu, và pipeline
+# drone-in-a-box M3 không dùng tới.
 if [ ! -f "$SCRIPT_DIR/ros2_ws/src/px4_msgs/package.xml" ]; then
-    echo -e "${YELLOW}[WARN] Thiếu px4_msgs.${NC} Clone vào workspace:"
+    echo -e "${YELLOW}[WARN] Thiếu px4_msgs${NC} → 'px4_offboard' vẫn build được nhưng lỗi lúc chạy (M3 không cần)."
     echo    "         git clone https://github.com/PX4/px4_msgs.git \"$SCRIPT_DIR/ros2_ws/src/px4_msgs\""
+    DEP_WARN=1
 fi
 
-echo -e "\n${GREEN}=== XÁC THỰC HOÀN TẤT: Môi trường đã sẵn sàng để build! ===${NC}"
+# 9. Camera gimbal — FOV quyết định cấu hình đã đo ra M3 PASS 8/8.
+GIMBAL_SDF="$HOME/PX4/Tools/simulation/gz/models/gimbal/model.sdf"
+if [ -f "$GIMBAL_SDF" ]; then
+    if grep -q "<horizontal_fov>1.4137</horizontal_fov>" "$GIMBAL_SDF"; then
+        echo -e "${GREEN}[OK] Camera gimbal đúng FOV 1.4137 rad (81°)${NC}"
+    else
+        echo -e "${YELLOW}[WARN] Camera gimbal KHÔNG phải FOV 1.4137 rad.${NC} Chạy lại bước rsync overlay:"
+        echo    "         cd ~/PX4 && rsync -a examples/SITL_PrecisionLanding/px4/Tools/simulation/gz/ Tools/simulation/gz/"
+        DEP_WARN=1
+    fi
+else
+    echo -e "${YELLOW}[WARN] Không thấy $GIMBAL_SDF${NC} — kiểm tra cây PX4 và bước rsync overlay."
+    DEP_WARN=1
+fi
+
+if [ $DEP_FAIL -ne 0 ]; then
+    echo -e "\n${RED}=== CÓ LỖI [FAIL]: sửa xong rồi hãy build. ===${NC}"
+    exit 1
+elif [ $DEP_WARN -ne 0 ]; then
+    echo -e "\n${YELLOW}=== XONG, NHƯNG CÒN [WARN] ở trên — đọc và xử lý trước khi build. ===${NC}"
+else
+    echo -e "\n${GREEN}=== XÁC THỰC HOÀN TẤT: Môi trường đã sẵn sàng để build! ===${NC}"
+fi
 echo -e "Hãy chạy lệnh sau để build dự án:"
 echo -e "  cd ros2_ws && colcon build --symlink-install"
