@@ -523,12 +523,18 @@ ros2 run rqt_image_view rqt_image_view      # topic /siyi/fractal_debug
 ros2 topic echo /siyi/fractal_pose          # luồng pose
 ```
 Đổi RTSP/calibration ở `ros2_ws/src/precision_landing/config/rtsp_publisher_params.yaml`.
-Biến thể `siyi_camera_bridge` (truyền tham số trực tiếp thay vì qua file):
+
+Bản `siyi_camera_bridge` truyền tham số **thẳng trên dòng lệnh** thay vì qua file
+— tiện khi đang dò tham số ngoài hiện trường:
 ```bash
 ros2 launch siyi_camera_bridge real_fractal_detect.launch.py enable_mavros:=false \
   rtsp_url:=rtsp://192.168.168.16:8554/main.264 marker_size:=0.162 flip_180:=false \
   marker_configuration:=$PWD/px4/Tools/simulation/gz/models/fractal_aruco_marker/custom_fractal.yml
 ```
+Hai launch chạy **cùng một node C++** (`precision_landing/rtsp_publisher`), chỉ
+khác cách nạp tham số — nên số đo của chúng so sánh được với nhau. Quy trình đo
+thực địa đầy đủ (đo xa, ghi CSV, lỗi hay gặp):
+`ros2_ws/src/siyi_camera_bridge/README.md`.
 
 ---
 

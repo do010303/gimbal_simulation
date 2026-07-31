@@ -21,7 +21,6 @@ setup(
     license='Apache-2.0',
     entry_points={
         'console_scripts': [
-            'rtsp_publisher = siyi_camera_bridge.rtsp_publisher:main',
         ],
     },
 )

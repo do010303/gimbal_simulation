@@ -188,8 +188,11 @@ def generate_launch_description():
 
     # ── 2. SIYI RTSP Camera Bridge ─────────────────────────────────
 
+    # Bản C++ trong precision_landing. Trước đây gói này có một bản Python y hệt
+    # (cùng node name, cùng topic, cùng param) — đã bỏ để chỉ còn một implementation.
+    # Mọi param dưới đây đều truyền tường minh nên hành vi không đổi.
     rtsp_node = Node(
-        package='siyi_camera_bridge',
+        package='precision_landing',
         executable='rtsp_publisher',
         name='siyi_rtsp_publisher',
         parameters=[{
