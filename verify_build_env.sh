@@ -155,15 +155,6 @@ if ! ros2 pkg list 2>/dev/null | grep -qx "gz_ros2_control"; then
     echo    "       (bản apt ros-humble-gz-ros2-control là cho Fortress → gz server segfault khi spawn box)"
     DEP_WARN=1
 fi
-# 8c. px4_msgs — clone riêng (giữ nguyên cơ chế cũ). Chỉ 'px4_offboard' (pipeline
-# legacy mục 3) import nó lúc CHẠY; build vẫn xanh khi thiếu, và pipeline
-# drone-in-a-box M3 không dùng tới.
-if [ ! -f "$SCRIPT_DIR/ros2_ws/src/px4_msgs/package.xml" ]; then
-    echo -e "${YELLOW}[WARN] Thiếu px4_msgs${NC} → 'px4_offboard' vẫn build được nhưng lỗi lúc chạy (M3 không cần)."
-    echo    "         git clone https://github.com/PX4/px4_msgs.git \"$SCRIPT_DIR/ros2_ws/src/px4_msgs\""
-    DEP_WARN=1
-fi
-
 # 9. Camera gimbal — FOV quyết định cấu hình đã đo ra M3 PASS 8/8.
 # Repo nằm ở <px4>/examples/SITL_PrecisionLanding nên suy ra gốc cây PX4 từ
 # SCRIPT_DIR; ai để PX4 chỗ khác ~/PX4 vẫn kiểm đúng. Đặt PX4_DIR để ghi đè.

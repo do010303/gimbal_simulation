@@ -64,23 +64,20 @@ cd SITL_PrecisionLanding
 cd ~/PX4 && rsync -a examples/SITL_PrecisionLanding/px4/Tools/simulation/gz/ Tools/simulation/gz/
 cd examples/SITL_PrecisionLanding
 
-# 3. px4_msgs (clone riêng, không nằm trong repo)
-git clone https://github.com/PX4/px4_msgs.git ros2_ws/src/px4_msgs
-
-# 4. Verify: cài dep + build libaruco + GIẢI NÉN mesh box + kiểm dep ngoài
+# 3. Verify: cài dep + build libaruco + GIẢI NÉN mesh box + kiểm dep ngoài
 source /opt/ros/humble/setup.bash
 chmod +x verify_build_env.sh && ./verify_build_env.sh     # dừng và sửa nếu báo FAIL/WARN
 
-# 5. Build
+# 4. Build
 cd ros2_ws && colcon build --symlink-install && source install/setup.bash && cd ..
 
-# 6. Chạy pipeline drone-in-a-box: xem mục 2 (7 terminal)
+# 5. Chạy pipeline drone-in-a-box: xem mục 2 (7 terminal)
 ```
 
-`box_manager`, `box_simulation`, `dib_msgs`, `precision_landing`,
-`aruco_fractal_tracker` đã nằm trong repo. `verify_build_env.sh` lo: gói
+`box_manager`, `box_simulation`, `dib_msgs`, `precision_landing` đã nằm trong
+repo — **không phải clone thêm gì cả**. `verify_build_env.sh` lo: gói
 ROS/bridge còn thiếu, `libaruco 3.1.12` (từ `aruco_build/aruco.zip`), gunzip mesh
-thân box, và kiểm `px4_msgs`/`gz_ros2_control`.
+thân box, và kiểm `gz_ros2_control`.
 
 > **Kiểm tra tài nguyên đã sync** (sau bước 2):
 > ```bash
@@ -124,7 +121,6 @@ pip3 install -r requirements.txt
 ```
 
 `libaruco` vẫn phải build từ `aruco_build/aruco.zip` (verify script làm sẵn).
-`px4_msgs` phải nằm trong `ros2_ws/src/` hoặc source từ workspace khác trước khi build.
 
 ### 1.4. Xử lý sự cố ArUco (`libaruco`)
 
@@ -140,7 +136,7 @@ build vào `$HOME/.local`.
 
 Kiểm: `find $HOME/.local /usr/local/lib -name 'libaruco.so*'`. Rebuild riêng tracker:
 ```bash
-cd ros2_ws && colcon build --symlink-install --packages-select aruco_fractal_tracker --cmake-clean-cache
+cd ros2_ws && colcon build --symlink-install --packages-select precision_landing --cmake-clean-cache
 ```
 
 > **OpenCV 4.7+:** `cv::aruco::drawAxis` bị xóa trên OpenCV mới, code đã đổi sang
@@ -435,10 +431,17 @@ gzip lại (`gzip -k`) vì repo ship bản `.dae.gz`.
 
 ---
 
-## 3. Precision Landing — các pipeline cũ (legacy)
+## 3. Precision Landing — hạ cánh KHÔNG có box
 
-Các pipeline hạ cánh thị giác trước M3, giữ lại để tham chiếu. **Khung 4 terminal
-chung** cho các biến thể SITL:
+Cùng một binary C++ với mục 2. `offboard_precland_controller` **tự nhận biết**:
+không có telemetry box thì nó bỏ qua toàn bộ nhánh bắt tay và đi thẳng vào hạ
+cánh thị giác tiêu chuẩn —
+```
+Flight in progress: AUTO.LAND detected without box telemetry.
+Transitioning to START (standard visual land)
+```
+Không có cờ nào phải bật. Khác mục 2 đúng ở chỗ **không chạy phía box**, nên
+4 terminal thay vì 7:
 
 ```bash
 # Dọn tiến trình cũ (mục 1.5)
@@ -448,41 +451,35 @@ cd ~/PX4 && PX4_GZ_WORLD=fractal_aruco_landing PX4_GZ_NO_FOLLOW=1 make px4_sitl 
 
 # T2 — MAVROS (chạy một lần, GIỮ NGUYÊN — đừng restart giữa chuyến bay):
 source /opt/ros/humble/setup.bash
-ros2 launch mavros px4.launch fcu_url:=udp://:14540@127.0.0.1:14580
+ros2 launch precision_landing sitl_mavros.launch.py
 #   kiểm: ros2 topic echo --once /mavros/state   ->   connected: true
 
-# T3 — bridge camera + tracker + lander (CHỌN launch theo biến thể, xem bảng dưới):
+# T3 — bridge camera + tracker + controller:
 source /opt/ros/humble/setup.bash
 source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
-ros2 launch <package> <launch-file>
+ros2 launch precision_landing sitl_precland.launch.py
 
-# T4 — HUD giám sát (mở suốt lượt chạy, cùng topic với pipeline M3):
+# T4 — HUD giám sát (mở suốt lượt chạy, cùng topic với mục 2):
 ros2 run rqt_image_view rqt_image_view /landing/annotated_image
 ```
 
-> HUD giống hệt mục 2, chỉ khác dòng `BOX:` sẽ hiện `no telemetry` vì các pipeline
-> legacy không chạy phía box. Cách đọc: `ros2_ws/src/precision_landing/README.md`.
+> HUD giống hệt mục 2, chỉ khác dòng `BOX:` hiện `no telemetry` — đúng và bình
+> thường khi không chạy phía box. Cách đọc từng dòng:
+> `ros2_ws/src/precision_landing/README.md`.
 
-Các launch T3 **không** khởi động MAVROS; sửa/restart tracker hoặc lander thì chỉ
-restart T3, giữ nguyên T2 để PX4 vẫn nhận heartbeat mission computer.
+T3 **không** khởi động MAVROS; sửa/restart tracker thì chỉ restart T3, giữ
+nguyên T2 để PX4 vẫn nhận heartbeat mission computer.
 
-| Biến thể | T3 launch |
-|---|---|
-| **3.1** Fractal ArUco (MAVROS) | `ros2 launch px4_offboard fractal_aruco_landing.launch.py` |
-| **3.2** QGC sim precland | `ros2 launch px4_offboard qgc_sim_precland.launch.py` |
-| **3.3** QGC offboard precland | `ros2 launch px4_offboard qgc_offboard_precland.launch.py` |
-| **3.4** precision_landing (C++) | `ros2 launch precision_landing sitl_precland.launch.py` |
-
-Cấu hình SITL (3.1): box `x=4.0, y=-3.5, yaw=0`; marker 0.50 m trên
-`dib_box_landing_pad`; camera 1280×720 @30 Hz, hFOV 1.4137 rad (81°); control loop
-30 Hz (nghiệm thu ≥20 Hz). Ba tầng fractal: 50 / 12.5 / 3.125 cm.
-`model.sdf` + `marker_size` + marker vật lý phải cùng kích thước; detector dùng
-`custom_fractal.yml`. Nếu PX4 không ở `~/PX4`, truyền
+Marker ở đây là `dib_box_landing_pad` tĩnh trong world, **không** phải box khớp
+động của mục 2 — nên không chạy `box_spawn_only.launch.py`. Camera 1280×720
+@30 Hz, hFOV 1.4137 rad (81°); control loop 30 Hz (nghiệm thu ≥20 Hz). Ba tầng
+fractal 50 / 12.5 / 3.125 cm; `model.sdf` + `marker_size` + marker vật lý phải
+cùng kích thước. Nếu PX4 không ở `~/PX4`, truyền
 `marker_configuration:=/abs/path/custom_fractal.yml`.
 
 Controller dùng ENU (`search_x=East`, `search_y=North`; `pos_enu/target_enu/…` đều ENU).
 
-### 3.5. Bài bay tự động qua service (dùng với 3.4)
+### 3.1. Bài bay tự động qua service
 
 ```bash
 # T5:
@@ -497,23 +494,7 @@ ros2 service call /d1/mission_upload dib_msgs/srv/MissionUpload "{mission: [
 ]}"
 ```
 
-### 3.6. Box Hybrid Landing (prototype)
-
-FSM hybrid thay lander cũ, dùng chung PX4 SITL / MAVROS / tracker. Box thật thay
-bằng `mock_box_hardware` + `box_manager`, lander đọc trạng thái qua
-`/b<box_id>/telemetry` (`dib_msgs/BoxTelemetry`) — launch lo hết. T3 đổi sang:
-```bash
-ros2 launch px4_offboard box_hybrid_landing.launch.py
-ros2 topic pub --once /box_hybrid_landing/trigger std_msgs/msg/String "data: 'land'"
-```
-Node không tự bay mission; dùng QGC/mission thật đưa UAV tới box fixture `(4.0,-3.5)`,
-`manual_drive_alt=10.0m` là độ cao acquire ban đầu, rồi mới `REQUEST_LANDING` +
-visual guidance. Tuỳ chọn: `enable_offboard_visual_servo:=true`,
-`enable_yaw_setpoint:=true yaw_gate_deg:=5.0` (chỉ bật sau khi chắc mode/setpoint
-không xung đột PX4/MAVROS). Kiểm:
-`ros2 topic echo /box_hybrid_landing/{state,box_state,comms}`.
-
-### 3.7. Camera thật (RTSP, không cần PX4)
+### 3.2. Camera thật (RTSP, không cần PX4)
 
 Kiểm nhận diện của camera vật lý (SIYI A8 Mini / camera IP) mà chưa cần SITL/FCU:
 ```bash
