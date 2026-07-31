@@ -167,6 +167,9 @@ private:
   std::string last_lander_state_{"UNKNOWN"};
   double last_box_yaw_{0.0};
   bool last_box_yaw_valid_{false};
+  uint8_t last_box_state_{0};
+  bool last_box_state_valid_{false};
+  rclcpp::Time last_box_telemetry_time_;
   double current_fps_{0.0};
   rclcpp::Time last_fps_time_;
   rclcpp::Time last_valid_pose_time_;
@@ -197,6 +200,8 @@ private:
   void imageCallback(const sensor_msgs::msg::Image::SharedPtr msg);
   void cameraInfoCallback(const sensor_msgs::msg::CameraInfo::SharedPtr msg);
   void drawLatencyOverlay(cv::Mat& image);
+  // Human-readable name for a dib_msgs::msg::BoxState value, for the HUD.
+  static const char* boxStateName(uint8_t state);
   bool acceptPose(const tf2::Vector3& tvec, std::string& reject_reason);
   void publishTarget(
     const std_msgs::msg::Header& header,

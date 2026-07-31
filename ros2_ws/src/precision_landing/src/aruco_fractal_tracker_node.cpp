@@ -51,6 +51,7 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
   this->declare_parameter<double>("camera_offset_x", 0.1517);
   this->declare_parameter<double>("camera_offset_y", 0.0);
   this->declare_parameter<std::string>("box_telemetry_topic", "/b1/telemetry");
+  this->declare_parameter<int>("box_id", 1);
 
   auto marker_configuration = this->get_parameter("marker_configuration").get_value<std::string>();
   marker_size_ = this->get_parameter("marker_size").get_value<double>();
@@ -65,7 +66,18 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
   camera_y_to_north_sign_ = this->get_parameter("camera_y_to_body_north_sign").as_double();
   camera_offset_x_ = this->get_parameter("camera_offset_x").as_double();
   camera_offset_y_ = this->get_parameter("camera_offset_y").as_double();
-  const auto box_telemetry_topic = this->get_parameter("box_telemetry_topic").as_string();
+  // offboard_precland_params.yaml is loaded under '/**', so this node sees the same
+  // box_telemetry_topic and box_id as offboard_precland_controller. Mirror the
+  // controller's rule -- derive the topic from box_id while the topic is still the
+  // default, explicit topic wins -- otherwise the tracker sits on /b1/telemetry
+  // while the box runs as b2 and never receives any box data at all.
+  auto box_telemetry_topic = this->get_parameter("box_telemetry_topic").as_string();
+  const int box_id = this->get_parameter("box_id").as_int();
+  if (box_telemetry_topic == "/b1/telemetry" && box_id != 1) {
+    box_telemetry_topic = "/b" + std::to_string(box_id) + "/telemetry";
+    RCLCPP_INFO(this->get_logger(), "Derived box_telemetry_topic='%s' from box_id=%d",
+                box_telemetry_topic.c_str(), box_id);
+  }
 
   // Glare compensation parameters
   this->declare_parameter<bool>("enable_glare_compensation", false);
@@ -145,6 +157,9 @@ ArucoFractalTracker::ArucoFractalTracker(const rclcpp::NodeOptions &options)
     [this](const dib_msgs::msg::BoxTelemetry::SharedPtr msg) {
       last_box_yaw_ = static_cast<double>(msg->box_info.yaw);
       last_box_yaw_valid_ = std::isfinite(last_box_yaw_);
+      last_box_state_ = msg->box_state.state;
+      last_box_state_valid_ = true;
+      last_box_telemetry_time_ = this->get_clock()->now();
     });
 
   tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
@@ -1047,7 +1062,7 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   const int thickness = 1;
   const int margin = 10;
   const int line_height = 22;
-  const int panel_height = 6 * line_height + 12;
+  const int panel_height = 7 * line_height + 12;
   const int panel_top = std::max(0, image.rows - panel_height - margin);
   const int panel_right = std::min(image.cols - margin, 520);
 
@@ -1157,6 +1172,59 @@ void ArucoFractalTracker::drawLatencyOverlay(cv::Mat& image)
   cv::putText(
     image, glare_text, cv::Point(margin + 8, panel_top + 6 * line_height),
     font_face, font_scale, glare_color, thickness, cv::LINE_AA);
+
+  // Box FSM state, so one rqt_image_view window answers both "does the drone see
+  // the marker" and "has the box opened up yet" -- the two questions that decide
+  // whether a drone-in-a-box run is going well.
+  std::string box_text;
+  cv::Scalar box_color;
+  if (!last_box_state_valid_)
+  {
+    // The legacy no-box pipelines never publish this, and a box_id mismatch looks
+    // identical from here, so report the absence rather than inventing a state.
+    box_text = "BOX: no telemetry";
+    box_color = cv::Scalar(150, 150, 150);
+  }
+  else
+  {
+    const double age = (this->get_clock()->now() - last_box_telemetry_time_).seconds();
+    if (age > 3.0)
+    {
+      box_text = cv::format("BOX: %s(%u)  [STALE %.0fs]",
+        boxStateName(last_box_state_), last_box_state_, age);
+      box_color = cv::Scalar(0, 200, 255);
+    }
+    else
+    {
+      box_text = cv::format("BOX: %s(%u)", boxStateName(last_box_state_), last_box_state_);
+      box_color = (last_box_state_ == dib_msgs::msg::BoxState::WAITING_FOR_LANDING)
+        ? cv::Scalar(80, 255, 80)     // green: box is open and waiting for this drone
+        : cv::Scalar(255, 200, 120);
+    }
+  }
+  cv::putText(
+    image, box_text, cv::Point(margin + 8, panel_top + 7 * line_height),
+    font_face, font_scale, box_color, thickness, cv::LINE_AA);
+}
+
+const char* ArucoFractalTracker::boxStateName(uint8_t state)
+{
+  switch (state)
+  {
+    case dib_msgs::msg::BoxState::EMPTY:                  return "EMPTY";
+    case dib_msgs::msg::BoxState::IDLE:                   return "IDLE";
+    case dib_msgs::msg::BoxState::PREPARING_FOR_TAKEOFF:  return "PREPARING_FOR_TAKEOFF";
+    case dib_msgs::msg::BoxState::MISSION_UPLOADING:      return "MISSION_UPLOADING";
+    case dib_msgs::msg::BoxState::WAITING_FOR_TAKEOFF:    return "WAITING_FOR_TAKEOFF";
+    case dib_msgs::msg::BoxState::WAITING_FOR_RETURN:     return "WAITING_FOR_RETURN";
+    case dib_msgs::msg::BoxState::PREPARING_FOR_LANDING:  return "PREPARING_FOR_LANDING";
+    case dib_msgs::msg::BoxState::WAITING_FOR_LANDING:    return "WAITING_FOR_LANDING";
+    case dib_msgs::msg::BoxState::SECURING_DRONE:         return "SECURING_DRONE";
+    case dib_msgs::msg::BoxState::CHARGING:               return "CHARGING";
+    case dib_msgs::msg::BoxState::MAINTAINING:            return "MAINTAINING";
+    case dib_msgs::msg::BoxState::ERROR:                  return "ERROR";
+    default:                                              return "UNKNOWN";
+  }
 }
 
 } // namespace fractal_tracker
