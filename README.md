@@ -323,13 +323,18 @@ launch, fixture SITL tách riêng.
 
 **Kiểm 3 thứ trước khi bay** (10 giây bây giờ, tránh mất cả lượt bay):
 ```bash
-ros2 topic echo --once --field data /landing/pose_sync_ms   # số dương (vd 40.0), KHÔNG -1.0
 ros2 param get /mavros/mavros_node use_sim_time             # True  (node thật là /mavros/mavros_node)
 ros2 control list_controllers                               # 4 dòng 'active'
+ros2 topic echo --once /mavros/state                        # connected: true
 ```
-Lệnh 1 là **bằng chứng** (đo lệch thật giữa dấu thời gian ảnh và pose); lệnh 2 chỉ
-xác nhận nguyên nhân. `/mavros` tự nó không tồn tại — `ros2 param get /mavros ...`
-trả `Node not found` là sai tên node, không phải MAVROS hỏng.
+`/mavros` tự nó không tồn tại — `ros2 param get /mavros ...` trả `Node not found`
+là sai tên node, không phải MAVROS hỏng.
+
+> **`/landing/pose_sync_ms` chỉ có sau khi drone bay**, đừng dùng làm bước kiểm
+> tiền bay. Tracker chỉ publish topic này khi ghép được dấu thời gian ảnh với một
+> pose trong lịch sử; drone còn nằm trên mặt đất thì `ros2 topic echo` báo
+> `does not appear to be published yet` — **đúng, không phải lỗi**. Đang bay mà
+> ra `-1.0` mới là lệch đồng hồ (đọc `ros2_ws/src/precision_landing/README.md`).
 
 Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal):
 ```bash
@@ -338,9 +343,26 @@ python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py   # 8 tiêu chí M3
 
 **Bay**, trong `pxh>` của Terminal 1:
 ```
+pxh> param set NAV_DLL_ACT 0      # BẮT BUỘC nếu không mở QGroundControl — xem dưới
 pxh> commander takeoff
 pxh> commander land
 ```
+
+> **Không có dòng `NAV_DLL_ACT` thì không arm được.** PX4 mặc định
+> `NAV_DLL_ACT = 2`, tức **đòi phải có kết nối GCS mới cho arm**. MAVROS không
+> tính là GCS. Chạy pipeline này mà không mở QGroundControl thì `commander
+> takeoff` trả về:
+> ```
+> WARN  [health_and_arming_checks] Preflight Fail: No connection to the GCS
+> WARN  [commander] Arming denied: Resolve system health failures first
+> ```
+> Drone nằm im, FSM đứng ở `IDLE`, và **không có dòng log nào nhắc tới box hay
+> tracker** — rất dễ đi lùng lỗi nhầm ở phía ROS. Hai cách, chọn một:
+> - `param set NAV_DLL_ACT 0` như trên (hợp cho chạy headless/tự động), hoặc
+> - mở **QGroundControl** trước khi takeoff (nó tự nối UDP 14550).
+>
+> Kiểm nhanh khi nghi ngờ: `pxh> commander check` — phải in `Preflight check: OK`.
+
 `offboard_precland_controller` bắt `AUTO.LAND`, tự chuyển `OFFBOARD` và chạy
 `GOTO_BOX → PRELANDING_CHECK → WAIT_BOX_READY → START`. **FSM đứng ở `IDLE` khi
 chưa bay là ĐÚNG** — controller chỉ rời `IDLE` khi MAVROS báo drone đang bay.
@@ -481,6 +503,13 @@ ros2 run rqt_image_view rqt_image_view /landing/annotated_image
 
 T3 **không** khởi động MAVROS; sửa/restart tracker thì chỉ restart T3, giữ
 nguyên T2 để PX4 vẫn nhận heartbeat mission computer.
+
+**Bay** — giống mục 2, trong `pxh>` của T1:
+```
+pxh> param set NAV_DLL_ACT 0      # hoặc mở QGroundControl, xem ghi chú ở mục 2.4
+pxh> commander takeoff
+pxh> commander land
+```
 
 Marker ở đây là `dib_box_landing_pad` tĩnh trong world, **không** phải box khớp
 động của mục 2 — nên không chạy `box_spawn_only.launch.py`. Camera 1280×720
