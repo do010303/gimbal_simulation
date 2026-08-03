@@ -119,3 +119,26 @@ On new devices, configuration must be done in the `box_state_manager.yaml` file:
 source ~/ws/install/setup.bash
 ros2 launch box_manager station_manager.launch
 ```
+
+---
+
+## REQ_BOX_FEA_0003 additive telemetry fields (2026-08-03)
+
+`dib_msgs/msg/BoxInfo` and `dib_msgs/msg/BoxPower` gained spec-named fields
+alongside the existing ones (additive, nothing removed/renamed):
+
+| New field | Msg | Mirrors / meaning |
+|---|---|---|
+| `status_door` | `BoxInfo` | = `lid_state` (spec name) |
+| `status_hold` | `BoxInfo` | = `clamp_state` (spec name) |
+| `is_empty` | `BoxInfo` | `true` when `box_state == EMPTY` |
+| `connected` | `BoxInfo` | box link to drone/server is up |
+| `air_conditioner` | `BoxInfo` | `AC_OFF=0` / `AC_ON=1` |
+| `status_power` | `BoxPower` | `POWER_MAIN=0` / `POWER_BACKUP=1` / `POWER_LOW=2` |
+
+`box_state_manager` populates all of them alongside the existing fields when
+assembling telemetry. Environment fields (`env/outside/*`, `system1/*`) need a
+publisher on those topics — in SITL there is no real weather sensor, so
+`docs/m3_box_handshake_test/box_env_publisher.py` fixture-publishes simulated
+values (started from `sitl_fixtures.launch.py`); on real hardware those are
+the real sensors. Full verification methodology: `docs/req_verification_test/README.md`.

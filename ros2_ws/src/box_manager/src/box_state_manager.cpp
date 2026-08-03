@@ -343,6 +343,16 @@ void BoxStateManager::box_telemetry_timer_callback()
     this->box_info_msg_.drone_id = this->drone_id_;
     this->box_info_msg_.box_id = this->box_id_;
     this->box_info_msg_.yaw = this->yaw_box;
+    // REQ_BOX_FEA_0003: spec-named fields (additive) derived from existing state.
+    this->box_info_msg_.status_door = this->box_info_msg_.lid_state;
+    this->box_info_msg_.status_hold = this->box_info_msg_.clamp_state;
+    this->box_info_msg_.is_empty =
+        (this->box_state_msg_.state == dib_msgs::msg::BoxState::EMPTY);
+    this->box_info_msg_.connected = this->drone_telemetry_msg_.state.connected;
+    this->box_info_msg_.air_conditioner =
+        (this->box_info_msg_.cooling_battery_state != 0) ?
+        dib_msgs::msg::BoxInfo::AC_ON : dib_msgs::msg::BoxInfo::AC_OFF;
+    this->box_power_msg_.status_power = dib_msgs::msg::BoxPower::POWER_MAIN;
     this->box_telemetry_msg_.box_info = this->box_info_msg_;
     this->box_telemetry_msg_.box_environment = this->box_environment_msg_;
     this->box_telemetry_msg_.box_state = this->box_state_msg_;
