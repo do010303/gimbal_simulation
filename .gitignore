@@ -26,15 +26,17 @@ ros2_ws/src/box_simulation/meshes/dae/base_link_1.dae
 
 # Keep local project documents private; publish only the approved files.
 docs/*
-!docs/marker.png
-!docs/FLIGHT_TEST.md
-!docs/fractal_aruco_fsm.dot
-!docs/fractal_aruco_fsm.png
 # M3 deliverable: consolidated doc + its test harness (see docs/m3.md).
 !docs/m3.md
 !docs/m3_box_handshake_test/
 !docs/m3_box_handshake_test/*.py
 !docs/m3_box_handshake_test/*.md
+# Sơ đồ FSM/kiến trúc — README trỏ vào đây.
+!docs/diagrams/
+!docs/diagrams/*.png
+!docs/diagrams/*.jpg
+!docs/diagrams/*.dot
+!docs/diagrams/*.mmd
 
 # Python cache
 __pycache__/

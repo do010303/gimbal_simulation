@@ -560,5 +560,5 @@ thực địa đầy đủ (đo xa, ghi CSV, lỗi hay gặp):
 - Đang giữ OFFBOARD / giữa chuyến bay: **không restart MAVROS** — giữ terminal
   MAVROS riêng và chỉ restart terminal tracker. Restart MAVROS lúc đó có thể gây
   `Critical: Connection to mission computer lost`.
-- Quy trình nghiệm thu Fractal ArUco + sơ đồ FSM: `docs/FLIGHT_TEST.md`,
-  `docs/fractal_aruco_fsm.png`.
+- Sơ đồ FSM và kiến trúc: `docs/diagrams/` — `fractal_aruco_fsm.png` (FSM hạ
+  cánh), `dib_diagram.png` (kiến trúc drone-in-a-box), kèm bản nguồn `.mmd`/`.dot`.

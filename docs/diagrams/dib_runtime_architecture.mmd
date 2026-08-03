@@ -1,0 +1,32 @@
+flowchart LR
+    subgraph BOX["BOX DOMAIN - may tinh box"]
+        direction TB
+        GZBOX["box_simulation (Gazebo Harmonic)\nlid / clamp joints - ros2_control\njoint_state_broadcaster"]
+        ADAPTER["box_hardware_adapter_node\n(M2)"]
+        BSM["box_state_manager_node\nbox_manager FSM"]
+
+        GZBOX -->|"/joint_states"| ADAPTER
+        ADAPTER -->|"/joint_(lid,clamp_h,clamp_v)_controller\n/joint_trajectory"| GZBOX
+        ADAPTER -->|"/lid/status - /clamp/status\n/dock/*/status"| BSM
+        BSM -->|"/lid/cmd - /clamp/cmd\n/dock/*/cmd (srv)"| ADAPTER
+    end
+
+    subgraph DRONE["DRONE DOMAIN - companion computer"]
+        direction TB
+        PX4["PX4 SITL + Gazebo (x500)"]
+        MAVROS["MAVROS"]
+        BRIDGE["mavros_to_dib_telemetry\n(M2)"]
+        TRACKER["aruco_fractal_tracker"]
+        CTRL["offboard_precland_controller\n+ BoxLink (M3)"]
+
+        PX4 <-->|"MAVLink"| MAVROS
+        PX4 -.->|"/gimbal_camera"| TRACKER
+        MAVROS -->|"/mavros/state\n/mavros/extended_state"| BRIDGE
+        MAVROS -->|"/mavros/local_position/pose"| CTRL
+        CTRL -->|"setpoint_position - set_mode - arming"| MAVROS
+        TRACKER -->|"/landing/target_camera"| CTRL
+    end
+
+    CTRL ==>|"1: /b1/cmd REQUEST_LANDING (srv)"| BSM
+    BSM ==>|"2: /b1/telemetry box_state + box pose"| CTRL
+    BRIDGE ==>|"3: /d1/telemetry landed_state"| BSM

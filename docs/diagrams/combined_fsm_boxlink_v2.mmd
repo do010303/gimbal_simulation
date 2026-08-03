@@ -1,0 +1,61 @@
+flowchart TB
+    subgraph DRONE["DRONE FSM - offboard_precland_controller (C++, package precision_landing)"]
+        direction LR
+
+        D_IDLE["IDLE\n(chờ takeoff)"]
+        D_FLIGHT["FLIGHT_IN_PROGRESS\n(bay mission GPS/RTK)"]
+        D_GOTO["GOTO_BOX\n(bay tới box theo BoxTelemetry)"]
+        D_PRECHECK["PRELANDING_CHECK  [MOI]\ngimbal down, camera_info alive,\ntracker heartbeat OK"]
+        D_WAITBOX["WAIT_BOX_READY  [MOI]\nBoxLink.request_landing()\npoll box_state==WAITING_FOR_LANDING"]
+        D_START["START"]
+        D_SEARCH["SEARCH"]
+        D_APPROACH["HORIZONTAL_APPROACH"]
+        D_DESCEND["DESCEND_ABOVE_TARGET"]
+        D_FINAL["FINAL_APPROACH"]
+        D_LOST["TARGET_LOST"]
+        D_FALLBACK["FALLBACK\n(AUTO.LAND / RTL)"]
+        D_DONE["DONE\nBoxLink.notify_landed()"]
+
+        D_IDLE -->|"armed && in_air"| D_FLIGHT
+        D_FLIGHT -->|"AUTO.LAND + box telemetry fresh"| D_GOTO
+        D_FLIGHT -->|"AUTO.LAND, khong co box telemetry"| D_START
+        D_GOTO -->|"dist <= goto_box_arrival_radius"| D_PRECHECK
+        D_GOTO -->|"box telemetry timeout > 5s"| D_START
+        D_PRECHECK -->|"gimbal/camera/tracker OK"| D_WAITBOX
+        D_PRECHECK -->|"check fail / timeout"| D_FALLBACK
+        D_WAITBOX -->|"box_state == WAITING_FOR_LANDING(7)"| D_START
+        D_WAITBOX -->|"box_ready_timeout_sec vuot qua"| D_FALLBACK
+        D_START --> D_SEARCH
+        D_SEARCH -->|"marker tracked >= N frames"| D_APPROACH
+        D_SEARCH -->|"search timeout / max_search"| D_FALLBACK
+        D_APPROACH -->|"aligned & alt > final_alt"| D_DESCEND
+        D_APPROACH -->|"target lost"| D_LOST
+        D_APPROACH -->|"alt < abort_alt, chua can giua"| D_FINAL
+        D_LOST -->|"reacquired"| D_APPROACH
+        D_LOST -->|"loss timeout"| D_FALLBACK
+        D_DESCEND -->|"alt <= final_alt OR landed"| D_FINAL
+        D_DESCEND -->|"drift & alt > abort_alt"| D_SEARCH
+        D_DESCEND -->|"drift & alt <= abort_alt"| D_APPROACH
+        D_FINAL -->|"disarm thanh cong"| D_DONE
+        D_FINAL -->|"disarm fail sau 2s"| D_FALLBACK
+        D_FALLBACK -->|"landed_state == ON_GROUND"| D_DONE
+        D_DONE -->|"chu ky moi"| D_IDLE
+    end
+
+    subgraph BOX["BOX FSM - box_manager (box_state_manager_node)"]
+        direction LR
+        B_EMPTY["EMPTY(0) / IDLE(1)"]
+        B_PREP["PREPARING_FOR_LANDING(6)\nopen lid, release clamp"]
+        B_WAIT["WAITING_FOR_LANDING(7)"]
+        B_SECURE["SECURING_DRONE(8)\nclose clamp, close lid"]
+        B_CHARGE["CHARGING(9)"]
+
+        B_EMPTY -->|"BoxCmd::REQUEST_LANDING"| B_PREP
+        B_PREP -->|"LidStatus==OPENED\nClampStatus==OPENED"| B_WAIT
+        B_WAIT -->|"drone landed"| B_SECURE
+        B_SECURE -->|"secured"| B_CHARGE
+    end
+
+    D_WAITBOX -.->|"1: BoxCmd REQUEST_LANDING"| B_PREP
+    B_WAIT -.->|"2: readiness gate (state==7)"| D_WAITBOX
+    D_DONE -.->|"3: BoxCmd HOLD_DRONE / CLOSE_BOX"| B_SECURE
