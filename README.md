@@ -2,16 +2,25 @@
 
 Pipeline hạ cánh chính xác cho drone `x500_gimbal` trong Gazebo SITL bằng
 **Fractal ArUco** (tracker C++ `aruco_fractal_tracker`, marker fractal lồng nhau
-cạnh ngoài 50 cm) qua **MAVROS**. Mốc hiện tại: **M3 — drone-in-a-box khép trọn
-vòng đời tới `CHARGING`** (mục 2). Chi tiết thiết kế M3: `docs/m3.md`.
+cạnh ngoài 50 cm) qua **MAVROS**. Drone tự tìm marker, hạ cánh chính xác xuống
+một box vật lý (nắp mở, kẹp giữ, sạc) — vòng đời khép từ cất cánh tới sạc xong.
 
 Đây là mục lục chạy-được. Mọi giải thích *tại sao* (bẫy đã gặp, lý do một dòng
-lệnh phải đứng ở đúng chỗ đó) nằm ở **[Phụ lục](#phụ-lục--ghi-chú--bẫy-kỹ-thuật)**
-cuối file — đọc khi có gì đó không chạy, không cần đọc trước.
+lệnh phải đứng ở đúng chỗ đó, cấu hình dễ sai) nằm ở
+**[Phụ lục](#phụ-lục--ghi-chú--bẫy-kỹ-thuật)** cuối file — đọc khi có gì đó
+không chạy, không cần đọc trước.
 
 ---
 
 ## 1. Cài đặt — từ máy trống tới build xong
+
+**Trước khi bắt đầu, máy cần sẵn:**
+- **ROS 2 Humble** đã cài và source được (`/opt/ros/humble/setup.bash`) —
+  [hướng dẫn cài chính thức](https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debs.html).
+- **PX4-Autopilot** đã clone ở `~/PX4` và build được SITL (`make px4_sitl`
+  chạy được) — [hướng dẫn build chính thức](https://docs.px4.io/main/en/dev_setup/building_px4.html).
+  Để chỗ khác cũng chạy, chỉ cần thay `~/PX4` trong mọi lệnh dưới đây cho khớp.
+- **Gazebo Harmonic** (`gz sim --version` → 8.x). Đã kiểm trên 8.11.0.
 
 ```bash
 # 1. Build gz_ros2_control TỪ NGUỒN cho Harmonic (bắt buộc, một lần — xem Phụ lục A.1)
@@ -51,15 +60,11 @@ Xong bước 5 là build được. Chạy pipeline: **mục 2** (drone-in-a-box,
 nghị) hoặc **mục 3** (hạ cánh đơn, không có box).
 
 **Không dùng `verify_build_env.sh`?** Cài tay + build `libaruco`: Phụ lục A.4.
-Kiểm tài nguyên đã sync đúng (FOV, mesh): Phụ lục A.2. Sự cố ArUco: Phụ lục A.4.
+Kiểm tài nguyên đã sync đúng (FOV, mesh): Phụ lục A.2.
 
 ---
 
-## 2. Drone-in-a-Box — Pipeline Đầy Đủ (M3)
-
-> **Mốc M3 — ✅ PASS 8/8 (2026-07-29), sai số hạ cánh thật 4.9 cm.** Chi tiết
-> đầy đủ (thiết kế bắt tay, hợp nhất world, khép vòng đời, nhật ký bẫy, tiêu
-> chí từng bước): `docs/m3.md`. File test: `docs/m3_box_handshake_test/`.
+## 2. Drone-in-a-Box — chạy pipeline đầy đủ
 
 ```
 box_manager  ──service──▶  box_hardware_adapter  ──JointTrajectory──▶  ros2_control
@@ -142,11 +147,6 @@ ros2 control list_controllers                               # 4 dòng 'active'
 ros2 topic echo --once /mavros/state                        # connected: true
 ```
 
-Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal):
-```bash
-python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py   # 8 tiêu chí M3
-```
-
 **Bay**, trong `pxh>` của Terminal 1:
 ```
 pxh> param set NAV_DLL_ACT 0      # bắt buộc nếu không mở QGroundControl — Phụ lục A.6
@@ -157,8 +157,9 @@ pxh> commander land
 FSM đứng ở `IDLE` khi chưa bay là **đúng**. Sau bay, `WAIT_BOX_READY → START →
 HORIZONTAL_APPROACH → DESCEND_ABOVE_TARGET → FINAL_APPROACH`, chạm đất, rồi
 **còn ~35–40 giây nữa** box mới kẹp xong / đóng nắp / sang `CHARGING` — đừng
-Ctrl+C sớm. Một lượt đạt = FSM hai bên đan xen đúng nhân quả và kết thúc ở
-`CHARGING`:
+Ctrl+C sớm.
+
+**Lượt chạy đạt** = FSM hai bên đan xen đúng nhân quả, kết thúc ở `CHARGING`:
 ```
 DRONE  -> GOTO_BOX -> PRELANDING_CHECK -> WAIT_BOX_READY
 BOX    -> PREPARING_FOR_LANDING(6) -> WAITING_FOR_LANDING(7)
@@ -167,41 +168,16 @@ MAVROS -> landed_state=ON_GROUND
 BOX    -> SECURING_DRONE(8) -> CHARGING(9)
 ```
 
+Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal):
+```bash
+python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py
+```
+
 > **Đọc log và chẩn đoán khi có gì lệch:** dòng log trông như lỗi nhưng không
 > phải, cách đọc HUD, latency vs lệch đồng hồ, cách đọc sai số hạ cánh — tất cả
-> ở **`ros2_ws/src/precision_landing/README.md`**.
-
-### 2.3. Ba cấu hình sai là hỏng cả lần chạy
-
-1. **`box_id` phải khớp** giữa `box_state_manager.yaml` và
-   `offboard_precland_params.yaml`. Lệch → FSM bỏ qua toàn bộ bắt tay, không
-   báo lỗi. Xác nhận bằng log: `Derived box_telemetry_topic='/b2/telemetry'
-   from box_id=2`.
-2. **Box phải có toạ độ GPS** (topic `gps`, `sensor_msgs/NavSatFix`). SITL
-   không ai publish thật → phải chạy fixture (T6). Thiếu thì `lat/lon=0`, drone
-   bay mất hàng nghìn km.
-3. **`marker_size` phải khớp plane thật.** Marker đen chiếm 80.12% cạnh ảnh
-   (viền trắng 1 module) → plane = `marker_size / 0.8012`. Lệch → sai thang đo
-   pose → sai độ cao → flare sớm hoặc cắm xuống.
-
-### 2.4. Chỉnh hướng đậu của drone (`marker_yaw`)
-
-```bash
-# chỉ khởi động lại T2, không phải PX4
-ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=1.5708
-```
-Thử `0.0` / `1.5708` / `3.1416` / `-1.5708`, giữ giá trị nào đậu drone thẳng
-hàng giữa hai cặp kẹp (world Y 0.774 m, world X 0.782 m) — tiêu chí là hai cặp
-kẹp, không phải màu nắp.
-
-### 2.5. Chạy tách domain box↔drone (M4, tuỳ chọn — đang phát triển)
-
-Trên phần cứng thật, box và drone là hai máy riêng. M4 mô phỏng điều đó trên
-một host bằng hai `ROS_DOMAIN_ID`, bắc cầu 3 giao diện hợp đồng
-(`/b2/telemetry`, `/d1/telemetry`, service `/b2/cmd`) qua `domain_bridge`
-(ROS-native — không dùng DDS-Router, xem Phụ lục A.9). Mục 2 (một domain) vẫn
-là cách chạy mặc định. **Package cầu (`dib_domain_bridge`) chưa vào repo** —
-mục này ghi lại cách chạy khi nó sẵn sàng; hỏi trước khi dựa vào nó.
+> ở **`ros2_ws/src/precision_landing/README.md`**. Ba cấu hình hay gõ sai
+> (`box_id`, GPS box, `marker_size`): Phụ lục A.7. Đổi hướng đậu của drone:
+> Phụ lục A.8. Chạy tách domain box↔drone (tuỳ chọn): Phụ lục A.10.
 
 ---
 
@@ -309,7 +285,10 @@ khác cách nạp tham số — số đo so sánh được với nhau. Quy trìn
 - **Chẩn đoán, đọc log, đọc HUD:** `ros2_ws/src/precision_landing/README.md`.
   Phía box: `ros2_ws/src/box_manager/README.md`,
   `ros2_ws/src/box_hardware_adapter/README.md`.
-- M3 đầy đủ (thiết kế, bẫy, tiêu chí nghiệm thu): `docs/m3.md`.
+- Thiết kế/nhật ký bẫy đầy đủ của pipeline mục 2 (bắt tay, hợp nhất world, khép
+  vòng đời, tiêu chí nghiệm thu): `docs/m3.md`. Đã kiểm PASS 8/8 tiêu chí
+  (2026-07-29), sai số hạ cánh thật 4.9 cm. File test:
+  `docs/m3_box_handshake_test/`.
 - Sơ đồ FSM và kiến trúc: `docs/diagrams/` — `fractal_aruco_fsm.png` (FSM hạ
   cánh), `dib_diagram.png` (kiến trúc drone-in-a-box), kèm bản nguồn `.mmd`/`.dot`.
 - Marker chính thống nhất về `0.50 m` (`marker_size:=0.50`); đổi kích thước
@@ -361,7 +340,7 @@ upstream của submodule `Tools/simulation/gz` để `2.0` rad (114.6°) — bư
 rsync ghi đè lại đúng giá trị. Sai FOV thì marker chiếm ít pixel hơn ~1.8 lần ở
 cùng khoảng cách: tracker vẫn chạy (lấy nội tham số từ `camera_info` nên vẫn
 tự nhất quán), nhưng các ngưỡng approach/descend đã tinh chỉnh trong
-`offboard_precland_params.yaml` **không còn là cấu hình đã đo ra PASS 8/8**.
+`offboard_precland_params.yaml` **không còn là cấu hình đã đo đạt tiêu chí**.
 Đây cũng là FOV mà `aruco_fractal_tracker` ghi cứng làm giá trị dự phòng
 (`fx = fy = 749.338`).
 
@@ -491,7 +470,7 @@ không ứng với khung đang xem.
 
 **T6 fixture chỉ cho SITL.** `dib_bringup.launch.py` là launch **sản phẩm** —
 chạy nguyên xi trên phần cứng thật, không phải tắt cờ nào. `sitl_fixtures.launch.py`
-publish `/gps` cho box (xem 2.3); trên box thật GPS là thiết bị thật nên bỏ T6.
+publish `/gps` cho box (xem A.7); trên box thật GPS là thiết bị thật nên bỏ T6.
 
 `/mavros` tự nó không tồn tại — `ros2 param get /mavros ...` trả `Node not
 found` là sai tên node (đúng là `/mavros/mavros_node`), không phải MAVROS
@@ -524,14 +503,34 @@ wc -l /tmp/bringup.log          # cả chuyến ~2 phút: DƯỚI 40 dòng, KHÔ
 grep 'Box in' /tmp/bringup.log  # mỗi state đúng MỘT dòng
 ```
 
-### A.7. Giới hạn đã biết
+### A.7. Ba cấu hình sai là hỏng cả lần chạy
 
-**Fixture GPS.** `box_simulation` chưa có `ros_gz_bridge` cho sensor `navsat`,
-nên trong SITL vẫn phải dùng node fixture publish `/gps`. Trên phần cứng thật
-box có GPS thật nên không cần fixture.
+1. **`box_id` phải khớp** giữa `box_state_manager.yaml` và
+   `offboard_precland_params.yaml`. Lệch → FSM bỏ qua toàn bộ bắt tay, không
+   báo lỗi. Xác nhận bằng log: `Derived box_telemetry_topic='/b2/telemetry'
+   from box_id=2`.
+2. **Box phải có toạ độ GPS** (topic `gps`, `sensor_msgs/NavSatFix`). SITL
+   không ai publish thật → phải chạy fixture (T6, mục 2.2). Thiếu thì
+   `lat/lon=0`, drone bay mất hàng nghìn km. `box_simulation` chưa có
+   `ros_gz_bridge` cho sensor `navsat` thật; trên phần cứng box có GPS thật
+   nên không cần fixture.
+3. **`marker_size` phải khớp plane thật.** Marker đen chiếm 80.12% cạnh ảnh
+   (viền trắng 1 module) → plane = `marker_size / 0.8012`. Lệch → sai thang đo
+   pose → sai độ cao → flare sớm hoặc cắm xuống.
 
-**Tốn RAM — gần như toàn bộ là mesh visual của box.** Đo trên máy 16 GB (PSS,
-không phải RSS):
+### A.8. Chỉnh hướng đậu của drone (`marker_yaw`)
+
+```bash
+# chỉ khởi động lại T2, không phải PX4
+ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=1.5708
+```
+Thử `0.0` / `1.5708` / `3.1416` / `-1.5708`, giữ giá trị nào đậu drone thẳng
+hàng giữa hai cặp kẹp (world Y 0.774 m, world X 0.782 m) — tiêu chí là hai cặp
+kẹp, không phải màu nắp.
+
+### A.9. Tốn RAM — gần như toàn bộ là mesh visual của box
+
+Đo trên máy 16 GB (PSS, không phải RSS):
 
 | | RAM |
 |---|---|
@@ -559,13 +558,20 @@ Mesh này là bản vendor của team khác nên repo giữ nguyên bản gốc;
 nhớ gzip lại (`gzip -k`) vì repo ship bản `.dae.gz`. `HEADLESS=1` (A.5) cũng bỏ
 hẳn tiến trình GUI của Gazebo.
 
-### A.8. Chạy tách domain (M4) — vì sao không dùng DDS-Router
+### A.10. Chạy tách domain box↔drone (tuỳ chọn, đang phát triển)
 
-Trên Humble (Fast DDS 2.6) DDS-Router 3.x không discovery được endpoint
-Humble, còn 2.2 bắc cầu topic được nhưng **không route reply** của service.
-Cầu M4 dự kiến là `domain_bridge` (ROS-native) — xử lý cả topic lẫn service,
-không sửa dòng code hợp đồng nào. Cách chạy dự kiến khi package vào repo:
-box terminal `export ROS_DOMAIN_ID=42`, drone terminal `export
-ROS_DOMAIN_ID=0`, T5 thêm `include_telemetry_bridge:=false` (đẩy
-`mavros_to_dib_telemetry` sang domain drone), cộng một terminal cầu
+Trên phần cứng thật, box và drone là hai máy riêng. Có thể mô phỏng điều đó
+trên một host bằng hai `ROS_DOMAIN_ID`, bắc cầu 3 giao diện hợp đồng
+(`/b2/telemetry`, `/d1/telemetry`, service `/b2/cmd`) qua `domain_bridge`
+(ROS-native). **Package cầu (`dib_domain_bridge`) chưa vào repo** — mục này
+ghi lại kế hoạch chạy khi nó sẵn sàng; hỏi trước khi dựa vào nó.
+
+Vì sao không dùng DDS-Router: trên Humble (Fast DDS 2.6) DDS-Router 3.x không
+discovery được endpoint Humble, còn 2.2 bắc cầu topic được nhưng **không route
+reply** của service. `domain_bridge` xử lý cả topic lẫn service, không sửa
+dòng code hợp đồng nào.
+
+Cách chạy dự kiến: box terminal `export ROS_DOMAIN_ID=42`, drone terminal
+`export ROS_DOMAIN_ID=0`, T5 (mục 2.2) thêm `include_telemetry_bridge:=false`
+(đẩy `mavros_to_dib_telemetry` sang domain drone), cộng một terminal cầu
 `ros2 run dib_domain_bridge dib_split_bridge 42 0`.
