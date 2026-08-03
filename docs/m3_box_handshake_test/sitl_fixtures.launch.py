@@ -22,6 +22,13 @@ box_gps_publisher
     setpoint thousands of kilometres away, and the drone flies off. That is a
     hard blocker for the closed-loop test, not a cosmetic gap.
 
+box_env_publisher
+    box_state_manager assembles box_environment (wind/temp/humidity/rain) from
+    env/outside/* and system1/* topics (box_state_manager.cpp:57-62). SITL has
+    no weather sensor, so those stay 0. This feeds SIMULATED constants so the
+    telemetry carries a full BoxEnvironment (REQ_BOX_FEA_0003). Real hardware has
+    real sensors publishing these, so it also must not be in the product launch.
+
 On real hardware the box has a real GPS receiver publishing that topic, so
 none of this is needed -- which is exactly why it must not be in the product
 launch.
@@ -35,12 +42,17 @@ from launch.actions import ExecuteProcess
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 GPS_FIXTURE = os.path.join(_HERE, 'box_gps_publisher.py')
+ENV_FIXTURE = os.path.join(_HERE, 'box_env_publisher.py')
 
 
 def generate_launch_description():
     return LaunchDescription([
         ExecuteProcess(
             cmd=['python3', GPS_FIXTURE],
+            output='screen',
+        ),
+        ExecuteProcess(
+            cmd=['python3', ENV_FIXTURE],
             output='screen',
         ),
     ])
