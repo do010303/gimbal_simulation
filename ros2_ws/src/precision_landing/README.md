@@ -179,3 +179,19 @@ Mỗi độ cao có tên riêng: `alt_agl` (so điểm cất cánh, dùng ở `[
 `docs/fsm_diagram.md`, `docs/refactoring_architecture.md`,
 `docs/altitude_bug_analysis.md` trong chính gói này. Mốc M3 đầy đủ:
 `docs/m3.md` ở gốc repo.
+
+## 10. `require_rtk` và `DroneTelemetry.error` (REQ_UAV_FLY_0020)
+
+`offboard_precland_controller` nhận param `require_rtk` (mặc định `false`,
+truyền qua launch arg `sitl_precland.launch.py require_rtk:=true`). Khi bật và
+drone chưa có RTK fix lúc `PRELANDING_CHECK`, controller log `PRELANDING_CHECK:
+require_rtk set but no RTK fix -- unsafe. FALLBACK.` và chuyển FSM sang
+`FALLBACK` (hạ cánh dự phòng) thay vì bắt tay box.
+
+`mavros_to_dib_telemetry` theo dõi `/lander/state`: bất kỳ lần vào
+`FALLBACK` nào (không riêng no-RTK — mất marker, box không sẵn sàng, timeout…)
+đều SET `DroneTelemetry.error = [dib_msgs::msg::DroneTelemetry::ERR_FALLBACK_LANDING]`
+(mã `0002`). Cờ này **latch** — giữ nguyên tới khi FSM quay lại `IDLE`/
+`FLIGHT_IN_PROGRESS` ở chuyến bay kế tiếp, vì `FALLBACK → DONE` chuyển trong
+~30 ms nên một cờ không latch gần như không quan sát được qua `ros2 topic
+echo`. `error` rỗng `[]` ở chuyến bay bình thường.

@@ -252,6 +252,11 @@ private:
   double drone_lat_{0.0};
   double drone_lon_{0.0};
   bool gps_valid_{false};
+  // REQ_UAV_FLY_0020: no-RTK is one of the unsafe-landing conditions. rtk_fix_
+  // is derived from the drone GPS fix status; require_rtk_ gates whether its
+  // absence forces FALLBACK (default false so the SITL happy path is unaffected).
+  bool rtk_fix_{false};
+  bool require_rtk_{false};
   bool box_telemetry_valid_{false};
   double last_box_telemetry_time_{0.0};
   double final_x_{0.0};

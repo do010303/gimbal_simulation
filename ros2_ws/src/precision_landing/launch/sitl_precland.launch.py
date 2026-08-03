@@ -1,5 +1,8 @@
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -7,6 +10,11 @@ import os
 def generate_launch_description():
     pkg_share = get_package_share_directory('precision_landing')
     offboard_params_file = os.path.join(pkg_share, 'config', 'offboard_precland_params.yaml')
+
+    # REQ_UAV_FLY_0020 test hook: force the no-RTK fallback branch. Default false
+    # so a normal SITL flight is unaffected; set true to verify the fallback +
+    # DroneTelemetry error 0002:  ... sitl_precland.launch.py require_rtk:=true
+    require_rtk_arg = DeclareLaunchArgument('require_rtk', default_value='false')
 
 
 
@@ -72,13 +80,16 @@ def generate_launch_description():
             offboard_params_file,
             {
                 'use_sim_time': True,
-                'align_yaw_to_tag': True
+                'align_yaw_to_tag': True,
+                'require_rtk': ParameterValue(
+                    LaunchConfiguration('require_rtk'), value_type=bool)
             }
         ],
         output='screen'
     )
 
     return LaunchDescription([
+        require_rtk_arg,
         image_bridge_node,
         clock_bridge_node,
         camera_info_bridge_node,

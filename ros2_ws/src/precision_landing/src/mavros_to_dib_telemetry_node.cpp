@@ -60,9 +60,36 @@ MavrosToDibTelemetryNode::MavrosToDibTelemetryNode(const rclcpp::NodeOptions & o
         telemetry_topic_.c_str());
     });
 
+  // REQ_UAV_FLY_0020: the controller publishes its FSM state on /lander/state
+  // (offboard_precland_controller.cpp). Watch it so a fallback (unsafe) landing
+  // is reported to the box/server as DroneTelemetry.error code 0002. Plain
+  // depth-1 QoS matches the String publisher's default.
+  lander_state_sub_ = create_subscription<std_msgs::msg::String>(
+    "/lander/state", rclcpp::QoS(1),
+    std::bind(&MavrosToDibTelemetryNode::onLanderState, this, _1));
+
   RCLCPP_INFO(get_logger(),
     "mavros_to_dib_telemetry ready: /mavros/state + /mavros/extended_state -> %s",
     telemetry_topic_.c_str());
+}
+
+void MavrosToDibTelemetryNode::onLanderState(const std_msgs::msg::String::SharedPtr msg)
+{
+  // REQ_UAV_FLY_0020: LATCH the fallback flag. The controller leaves FALLBACK for
+  // DONE in ~30 ms, so a plain "true only while == FALLBACK" flag is effectively
+  // un-observable by a telemetry consumer. Once a fallback landing happens it
+  // must stay reported for the rest of the cycle; clear only when a fresh flight
+  // begins (state returns to IDLE / FLIGHT_IN_PROGRESS).
+  const std::string & s = msg->data;
+  if (s == "FALLBACK" && !fallback_active_) {
+    fallback_active_ = true;
+    RCLCPP_WARN(get_logger(),
+      "lander state=FALLBACK -> DroneTelemetry error 0002 SET (latched)");
+  } else if ((s == "IDLE" || s == "FLIGHT_IN_PROGRESS") && fallback_active_) {
+    fallback_active_ = false;
+    RCLCPP_WARN(get_logger(),
+      "lander state=%s -> DroneTelemetry error 0002 cleared (new cycle)", s.c_str());
+  }
 }
 
 void MavrosToDibTelemetryNode::onMavrosState(const mavros_msgs::msg::State::SharedPtr msg)
@@ -98,6 +125,11 @@ void MavrosToDibTelemetryNode::publishTelemetry()
   // landed_state (LANDED_STATE_UNDEFINED=0) never reaches box_manager.
   telemetry_msg_.header.stamp = now();
   telemetry_msg_.header.frame_id = "d" + std::to_string(drone_id_);
+  // REQ_UAV_FLY_0020: report a fallback landing as error 0002, nominal otherwise.
+  telemetry_msg_.error.clear();
+  if (fallback_active_) {
+    telemetry_msg_.error.push_back(dib_msgs::msg::DroneTelemetry::ERR_FALLBACK_LANDING);
+  }
   telemetry_pub_->publish(telemetry_msg_);
 }
 

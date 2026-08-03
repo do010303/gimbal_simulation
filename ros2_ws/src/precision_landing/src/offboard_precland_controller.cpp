@@ -20,6 +20,9 @@ OffboardPreclandController::OffboardPreclandController(const rclcpp::NodeOptions
   this->declare_parameter<std::string>("target_topic");
   this->declare_parameter<std::string>("target_pose_topic");
   this->declare_parameter<bool>("align_yaw_to_tag");
+  // REQ_UAV_FLY_0020: default false -- SITL GPS is not RTK, so leaving this on
+  // would fallback every flight. Set true (+ degrade GPS) to test the branch.
+  require_rtk_ = this->declare_parameter<bool>("require_rtk", false);
   this->declare_parameter<double>("tag_yaw_sign");
   this->declare_parameter<double>("tag_yaw_offset");
   this->declare_parameter<int>("land_mode");
@@ -392,6 +395,10 @@ void OffboardPreclandController::on_gps_position(const sensor_msgs::msg::NavSatF
   drone_lat_ = msg->latitude;
   drone_lon_ = msg->longitude;
   gps_valid_ = true;
+  // REQ_UAV_FLY_0020: treat a GBAS/RTK-grade fix as "RTK present". SITL's
+  // simulated GPS reports STATUS_FIX(0), so rtk_fix_ stays false there -- which
+  // is why require_rtk_ defaults off and is only turned on to exercise fallback.
+  rtk_fix_ = (msg->status.status >= sensor_msgs::msg::NavSatStatus::STATUS_GBAS_FIX);
 }
 
 void OffboardPreclandController::on_camera_info(const sensor_msgs::msg::CameraInfo::SharedPtr)
@@ -1404,6 +1411,16 @@ void OffboardPreclandController::st_prelanding_check()
 
   const double elapsed = now - prelanding_start_.value();
 
+  // REQ_UAV_FLY_0020: no-RTK is an unsafe-landing condition. When required and
+  // absent, do the fallback landing immediately instead of asking the box to
+  // open. Gated so the default SITL flight (non-RTK GPS) is unaffected.
+  if (require_rtk_ && !rtk_fix_) {
+    RCLCPP_ERROR(this->get_logger(),
+                 "PRELANDING_CHECK: require_rtk set but no RTK fix -- unsafe. FALLBACK.");
+    transition(PrecLandState::FALLBACK);
+    return;
+  }
+
   // Readiness gates. gimbal_configured_ proves the camera is actually pointing
   // down; box telemetry freshness proves we can still hear the box (without it
   // WAIT_BOX_READY could never observe box_state == WAITING_FOR_LANDING).
@@ -1947,6 +1964,25 @@ void OffboardPreclandController::st_done()
       "TOUCHDOWN: drone=(%.4f, %.4f)  aim=(%.4f, %.4f)  aim_error=%.3fm  alt_agl=%.3fm",
       pos_enu_.x, pos_enu_.y, final_x_, final_y_,
       std::sqrt(aim_dx * aim_dx + aim_dy * aim_dy), pos_enu_.z);
+
+    // REQ_UAV_TALA_0007: landing YAW accuracy. drone heading at rest vs the
+    // marker yaw the controller locked onto (tag_yaw_abs_) -- both in the same
+    // world frame the controller aligns in, so no ENU/gz frame offset. Logged
+    // beside aim_error the same way, so the angular error is measured, not
+    // inferred. N/A if the tag yaw was never locked (e.g. FALLBACK landing).
+    if (tag_yaw_abs_.has_value()) {
+      const double yaw_err_deg =
+        std::abs(wrap_angle(get_yaw(q_att_) - tag_yaw_abs_.value())) * 180.0 / M_PI;
+      RCLCPP_INFO(
+        this->get_logger(),
+        "TOUCHDOWN yaw: drone=%.1fdeg  marker=%.1fdeg  yaw_error=%.2fdeg  (REQ_UAV_TALA_0007 "
+        "threshold 10deg)",
+        get_yaw(q_att_) * 180.0 / M_PI, tag_yaw_abs_.value() * 180.0 / M_PI, yaw_err_deg);
+    } else {
+      RCLCPP_INFO(
+        this->get_logger(),
+        "TOUCHDOWN yaw: marker yaw never locked (tag_yaw_abs unset) -- yaw_error N/A");
+    }
 
     RCLCPP_INFO(
       this->get_logger(),

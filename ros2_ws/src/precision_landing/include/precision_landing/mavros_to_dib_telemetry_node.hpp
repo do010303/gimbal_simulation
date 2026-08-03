@@ -8,6 +8,7 @@
 #include <mavros_msgs/msg/extended_state.hpp>
 #include <dib_msgs/msg/drone_telemetry.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 
 namespace precision_landing
 {
@@ -36,6 +37,7 @@ public:
 private:
   void onMavrosState(const mavros_msgs::msg::State::SharedPtr msg);
   void onExtendedState(const mavros_msgs::msg::ExtendedState::SharedPtr msg);
+  void onLanderState(const std_msgs::msg::String::SharedPtr msg);
   void publishTelemetry();
 
   int drone_id_{1};
@@ -53,6 +55,11 @@ private:
 
   /// M3.6: dock power rail. False = box cut power, so stop publishing.
   bool powered_{true};
+
+  /// REQ_UAV_FLY_0020: mirrors the controller's /lander/state. True while the
+  /// lander FSM is in FALLBACK, so DroneTelemetry.error carries code 0002.
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr lander_state_sub_;
+  bool fallback_active_{false};
 };
 
 }  // namespace precision_landing
