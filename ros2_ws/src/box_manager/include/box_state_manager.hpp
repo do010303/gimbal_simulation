@@ -19,6 +19,7 @@
 #include "dib_msgs/msg/wind_sensor.hpp"
 #include "dib_msgs/msg/box_pose.hpp"
 #include "dib_msgs/msg/drone_telemetry.hpp"
+#include "dib_msgs/msg/box_cmd.hpp"
 #include "dib_msgs/srv/box_cmd.hpp"
 #include "dib_msgs/srv/lid_cmd.hpp"
 #include "dib_msgs/srv/cooling_cmd.hpp"
@@ -105,6 +106,9 @@ class BoxStateManager : public rclcpp::Node
         void drone_id_callback(const std_msgs::msg::UInt64::SharedPtr msg);
         void cooling_status_callback(const dib_msgs::msg::CoolingStatus::SharedPtr msg);
         void battery_temp_callback(const dib_msgs::msg::Temperature::SharedPtr msg);
+        // M4: topic counterpart of box_cmd_callback()'s agent_id % 10 == 2
+        // (drone) branch -- see dib_msgs/msg/BoxCmd.msg for why.
+        void drone_cmd_callback(const dib_msgs::msg::BoxCmd::SharedPtr msg);
 
         
         // Service callbacks
@@ -158,6 +162,7 @@ class BoxStateManager : public rclcpp::Node
         rclcpp::Subscription<std_msgs::msg::UInt64>::SharedPtr drone_id_sub_;
         rclcpp::Subscription<dib_msgs::msg::CoolingStatus>::SharedPtr cooling_status_sub_;
         rclcpp::Subscription<dib_msgs::msg::Temperature>::SharedPtr battery_temp_sub_;
+        rclcpp::Subscription<dib_msgs::msg::BoxCmd>::SharedPtr drone_cmd_sub_;
 
 
         rclcpp::Publisher<dib_msgs::msg::BoxTelemetry>::SharedPtr box_telemetry_pub_;

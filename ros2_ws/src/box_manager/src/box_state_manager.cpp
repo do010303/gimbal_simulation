@@ -69,6 +69,11 @@ BoxStateManager::BoxStateManager() : Node("box_state_manager")
     rtk_info_sub_ = this->create_subscription<dib_msgs::msg::RTKInfo>("rtk_info", 10, std::bind(&BoxStateManager::rtk_info_callback, this, std::placeholders::_1));
     power_status_sub_ = this->create_subscription<dib_msgs::msg::PowerStatus>("/system1/power/status", 10, std::bind(&BoxStateManager::power_status_callback, this, std::placeholders::_1));
     drone_id_sub_ = this->create_subscription<std_msgs::msg::UInt64>("/drone_id", 10, std::bind(&BoxStateManager::drone_id_callback, this, std::placeholders::_1));
+    // M4: topic counterpart of the b<box_id>/cmd service's drone role (agent_id
+    // % 10 == 2) -- DDS-Router bridges topics but not service replies, so the
+    // drone side now publishes here instead of calling the service. See
+    // dib_msgs/msg/BoxCmd.msg and precision_landing/box_link.hpp.
+    drone_cmd_sub_ = this->create_subscription<dib_msgs::msg::BoxCmd>("b" + std::to_string(this->box_id_) + "/drone_cmd", 10, std::bind(&BoxStateManager::drone_cmd_callback, this, std::placeholders::_1));
     // Create publishers
     box_telemetry_pub_ = this->create_publisher<dib_msgs::msg::BoxTelemetry>("b" + std::to_string(this->box_id_) + "/telemetry", qos);
     box_state_pub_ = this->create_publisher<dib_msgs::msg::BoxState>("/box/state", 1);
@@ -317,6 +322,30 @@ void BoxStateManager::box_cmd_callback(const std::shared_ptr<dib_msgs::srv::BoxC
             }
         }
     }).detach();
+}
+
+void BoxStateManager::drone_cmd_callback(const dib_msgs::msg::BoxCmd::SharedPtr msg)
+{
+    // M4: exact counterpart of box_cmd_callback()'s agent_id % 10 == 2 branch
+    // above, reached via topic instead of service. No detached thread needed:
+    // unlike the operator/server branch (HOLD_DRONE's blocking clamp wait),
+    // this branch only ever sets flags, so running it straight on the
+    // subscription callback is already non-blocking.
+    if (msg->agent_id % 10 != 2)
+    {
+        return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Drone command received: %d", msg->command);
+    if (this->box_state_ == BoxState::EMPTY && msg->command == dib_msgs::msg::BoxCmd::REQUEST_LANDING)
+    {
+        this->add_drone = true;
+        this->drone_id_ = msg->agent_id / 10;
+        this->request_landing = true;
+    }
+    if (this->box_state_ == BoxState::SECURING_DRONE && msg->command == dib_msgs::msg::BoxCmd::TURN_OFF_DRONE)
+    {
+        this->request_poweroff = true;
+    }
 }
 
 void BoxStateManager::mission_upload_callback(const std::shared_ptr<dib_msgs::srv::MissionUpload::Request> request, std::shared_ptr<dib_msgs::srv::MissionUpload::Response> response)

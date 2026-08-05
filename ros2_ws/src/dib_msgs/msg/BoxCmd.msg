@@ -12,3 +12,14 @@ uint8 PAIR_DRONE = 11
 uint8 UNPAIR_DRONE = 12
 uint8 CLEAR_ERROR = 13
 uint8 REQUEST_LANDING = 23
+
+# --- M4: topic-based command payload (additive; mirrors dib_msgs/srv/BoxCmd
+# Request exactly). DDS-Router 2.2.0 bridges topics correctly but drops
+# service replies across domains (proven, see docs/req_verification_test),
+# so the drone->box commands that must cross the M4 domain boundary
+# (REQUEST_LANDING, TURN_OFF_DRONE) are published here instead of called
+# through the b<box_id>/cmd service. box_state_manager's service stays
+# unchanged for the operator/server role (agent_id % 10 == 0).
+uint8 command
+uint64 reserve
+uint64 agent_id
