@@ -1,0 +1,54 @@
+# DDS-Router v2.2.0 build recipe — the M4 split-domain bridge.
+#
+# WHY 2.2.0 AND NOT THE LATEST RELEASE. ROS 2 Humble links Fast DDS 2.6.11
+# (libfastrtps.so.2.6). Every DDS-Router 3.x release pins Fast DDS 3.x --
+# checked per tag: v3.0.0->3.0.1, v3.4.0->3.4.1, v3.5.1->3.6.1. A Fast DDS 3.6
+# participant cannot discover Fast DDS 2.6 endpoints, so a 3.x router bridges
+# NOTHING for ROS 2 Humble nodes: measured twice (2026-07-30 and again
+# 2026-08-03 with a fresh 3.5.1 build) -- talker published continuously on one
+# domain, listener on the other received zero, router reporting "running" with
+# no error. Not a config problem and not fixable by one: which Fast DDS the
+# router links is baked into the build. v2.2.0 pins Fast DDS 2.14.0, still the
+# 2.x line, which interoperates with Humble's 2.6 -- verified bridging real
+# ROS 2 traffic including custom dib_msgs types.
+#
+# Do not bump these versions without re-running docs/m4_split_domain_test/.
+#
+# Build (once, ~4 min; there is NO apt package for DDS-Router):
+#   mkdir -p ~/DDS-Router-2.2/src && cd ~/DDS-Router-2.2
+#   cp <repo>/ros2_ws/src/precision_landing/config/dds_router_2.2.0.repos ddsrouter.repos
+#   vcs import src < ddsrouter.repos
+#   source /opt/ros/humble/setup.bash && colcon build
+#
+# rosdep is skipped on purpose: `rosdep install` aborts on this source tree
+# because fastcdr's package.xml carries a `<license file=...>` attribute that
+# rosdep's schema rejects. It is a manifest-format complaint, not a missing
+# dependency -- the actual system deps (asio, tinyxml2, openssl) come with a
+# normal ROS 2 desktop install.
+#
+# Run: see README.md appendix A.10 and dds_router_split.yaml (same directory).
+repositories:
+    foonathan_memory_vendor:
+        type: git
+        url: https://github.com/eProsima/foonathan_memory_vendor.git
+        version: v1.3.1
+    fastcdr:
+        type: git
+        url: https://github.com/eProsima/Fast-CDR.git
+        version: v2.2.0
+    fastdds:
+        type: git
+        url: https://github.com/eProsima/Fast-DDS.git
+        version: v2.14.0
+    dev-utils:
+        type: git
+        url: https://github.com/eProsima/dev-utils.git
+        version: v0.6.0
+    ddspipe:
+        type: git
+        url: https://github.com/eProsima/DDS-Pipe.git
+        version: v0.4.0
+    ddsrouter:
+        type: git
+        url: https://github.com/eProsima/DDS-Router.git
+        version: v2.2.0

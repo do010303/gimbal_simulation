@@ -1,0 +1,138 @@
+# =============================================================================
+# DDS-Router config — M4 split-domain bridge for drone-in-a-box.
+#
+# Bridges the box<->drone contract interfaces between two ROS 2 domains on one
+# host (or, on real hardware, two/three real machines on the same LAN). Run
+# with:
+#
+#     cd ~/DDS-Router-2.2 && source install/setup.bash
+#     ROS_LOCALHOST_ONLY=1 ./install/ddsrouter_tool/bin/ddsrouter -c \
+#       ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml
+#
+# Box side runs ROS_DOMAIN_ID=42, drone side ROS_DOMAIN_ID=0 (see the topology
+# table in the M4 plan). SITL: all terminals use ROS_LOCALHOST_ONLY=1 on one
+# host, which is exactly why whitelist-interfaces below exists (see next
+# comment block). On real separate machines ROS_LOCALHOST_ONLY would not be
+# set at all -- whitelist-interfaces would then need to name the real LAN
+# interface instead of 127.0.0.1, or be dropped entirely.
+#
+# MUST use DDS-Router 2.x on ROS 2 Humble. The 3.x line links Fast DDS 3.x,
+# which CANNOT discover Humble's Fast DDS 2.6 endpoints at all (proven
+# 2026-07-30, re-confirmed 2026-08-03 with 3.5.1: a 3.x router bridges
+# 3.x<->3.x fine but bridges nothing for ROS-2.6 talker/listener). Build
+# DDS-Router v2.2.0 (Fast DDS 2.14, interoperates with 2.6). Its config schema
+# REQUIRES `version: v4.0` (it rejects the older v3.1 at runtime) with BOOLEAN
+# QoS tags (verified LIVE: the 2.2.0 binary + its example configs all use
+# v4.0).
+#
+# WHY whitelist-interfaces IS REQUIRED (found 2026-08-03): with
+# ROS_LOCALHOST_ONLY=1, ROS nodes whitelist only 127.0.0.1 and silently drop
+# any peer locator on another interface. A plain DDS-Router participant binds
+# all interfaces and announces its real LAN IP too, so the ROS side rejects
+# its SEDP/unicast locators and no Reader/Writer match ever completes --
+# SPDP presence traffic flows fine (confirmed with a multicast sniff), only
+# the actual data path is blocked. Adding whitelist-interfaces: ["127.0.0.1"]
+# to EACH participant fixes it (confirmed working, real talker/listener
+# bridged 0->1 under ROS_LOCALHOST_ONLY=1). This is a per-participant tag,
+# not top-level/specs.
+#
+# WHY /b2/cmd IS A TOPIC HERE, NOT A SERVICE (found 2026-07-30, root-caused
+# 2026-08-03): DDS-Router 2.2.0 bridges TOPICS correctly but never routes a
+# ROS 2 service's REPLY across domains (request crosses fine, reply is lost --
+# proven with dib_msgs/BoxCmd AND a generic demo_nodes_cpp AddTwoInts service,
+# so it's a router RPC-bridge limitation, not anything dib_msgs-specific, and
+# it reproduces identically with the whitelist-interfaces fix applied). Rather
+# than pair DDS-Router with domain_bridge just for this one service, BoxLink
+# (precision_landing/src/box_link.cpp) now PUBLISHES REQUEST_LANDING /
+# TURN_OFF_DRONE on b<box_id>/drone_cmd instead of calling the b<box_id>/cmd
+# service -- a behavior-preserving change, since that service's reply was
+# already unused (box_state_manager set success=true unconditionally before
+# doing any work; telemetry was always the real confirmation). The original
+# b<box_id>/cmd SERVICE remains untouched in box_state_manager.cpp for the
+# separate operator/server role (agent_id % 10 == 0) -- it is simply not part
+# of what crosses the M4 domain boundary.
+#
+# WHY CUSTOM TYPES NEED AN EXPLICIT allowlist name+type (found 2026-08-03): a
+# bare `kind: local` participant pair with NO allowlist ("bridge everything
+# dynamically") bridged a plain std_msgs/String demo_nodes talker/listener
+# fine, but bridged ZERO messages of a custom dib_msgs/BoxCmd across domains
+# under otherwise-identical conditions (same-domain sanity check confirmed
+# the message type and QoS were fine in isolation). Declaring the topic AND
+# its DDS-mangled type in the allowlist fixed it. Pattern for the type field:
+#   <ros_pkg>::msg::dds_::<MsgName>_
+# So dib_msgs/msg/BoxCmd -> dib_msgs::msg::dds_::BoxCmd_. The existing
+# telemetry entries below predate this finding and have no `type:` -- they
+# reportedly worked anyway (M4.2, 2026-07-30), so an allowlist entry alone
+# (even without explicit type) may be sufficient; explicit type is added here
+# for the new drone_cmd entry since that is what was actually verified.
+#
+# DDS name mangling (ROS 2 over Fast DDS) for reference:
+#   ROS topic   /b2/telemetry     -> DDS  rt/b2/telemetry
+#   ROS topic   /b2/drone_cmd     -> DDS  rt/b2/drone_cmd
+# =============================================================================
+
+version: v4.0
+
+# ---------------------------------------------------------------------------
+# Allowlist: only these DDS topics cross between the two domains.
+# ---------------------------------------------------------------------------
+allowlist:
+  # --- 3 giao diện HỢP ĐỒNG (có cả trên phần cứng thật) ---
+  - name: "rt/b2/telemetry"          # box_state  : box(42) -> drone(0)
+  - name: "rt/d1/telemetry"          # drone state: drone(0) -> box(42)
+  - name: "rt/b2/drone_cmd"          # REQUEST_LANDING / TURN_OFF_DRONE: drone(0) -> box(42)
+    type: "dib_msgs::msg::dds_::BoxCmd_"
+
+  # --- FIXTURE CHỈ CHO SITL, không phải hợp đồng (bỏ dòng này trên máy thật) ---
+  # /dock/drone_power giả lập đường điện của dock. Phần cứng thật: box cắt điện
+  # -> máy tính drone tắt -> d1/telemetry im ngay, miễn phí. SITL: MAVROS vẫn
+  # chạy, nên box_hardware_adapter publish cờ này và mavros_to_dib_telemetry
+  # NGỪNG phát d1/telemetry khi nhận false. Box chỉ rời POWER_OFF -> DONE ->
+  # CHARGING khi d1/telemetry im quá 5 s (securing_state_manager.cpp). Thiếu
+  # mắt xích này ở split-domain thì box KẸT Ở POWER_OFF vĩnh viễn -- vòng đời
+  # dừng ở SECURING_DRONE(8), không bao giờ tới CHARGING(9).
+  - name: "rt/dock/drone_power"      # box(42) -> drone(0)
+    type: "std_msgs::msg::dds_::Bool_"
+
+# ---------------------------------------------------------------------------
+# Per-topic QoS. d1/telemetry is published BEST_EFFORT/VOLATILE
+# (mavros_to_dib_telemetry_node.cpp) -- DDS-Router may otherwise force RELIABLE
+# and either drop samples or block. Pin it to match the publisher.
+#
+# NOTE: the QoS tags are BOOLEAN, not strings (same in 2.x and 3.x schemas) --
+#   reliability: false -> BEST_EFFORT   (true -> RELIABLE)
+#   durability:  false -> VOLATILE      (true -> TRANSIENT_LOCAL)
+# ---------------------------------------------------------------------------
+topics:
+  - name: "rt/d1/telemetry"
+    qos:
+      reliability: false        # BEST_EFFORT
+      durability: false         # VOLATILE
+
+  # /dock/drone_power publish TRANSIENT_LOCAL (box_hardware_adapter dùng
+  # `rclcpp::QoS(1).transient_local()`) để subscriber vào muộn vẫn học được
+  # trạng thái hiện tại. Phải khai CẢ HAI: tài liệu DDS-Router cảnh báo đặt
+  # durability mà không đặt reliability sẽ lệch QoS khi bên kia là BEST_EFFORT.
+  - name: "rt/dock/drone_power"
+    qos:
+      reliability: true         # RELIABLE
+      durability: true          # TRANSIENT_LOCAL
+
+# ---------------------------------------------------------------------------
+# Two local (Fast DDS) participants, one per domain. DDS-Router forwards the
+# allowlisted topics from each domain to the other. whitelist-interfaces
+# restricts each participant to loopback -- required for SITL's
+# ROS_LOCALHOST_ONLY=1 (see header comment); on real separate hosts this
+# would name the real LAN interface instead, or be dropped.
+# ---------------------------------------------------------------------------
+participants:
+  - name: drone_side
+    kind: local
+    domain: 0
+    whitelist-interfaces:
+      - "127.0.0.1"
+  - name: box_side
+    kind: local
+    domain: 42
+    whitelist-interfaces:
+      - "127.0.0.1"

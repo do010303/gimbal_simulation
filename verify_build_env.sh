@@ -155,6 +155,32 @@ if ! ros2 pkg list 2>/dev/null | grep -qx "gz_ros2_control"; then
     echo    "       (bản apt ros-humble-gz-ros2-control là cho Fortress → gz server segfault khi spawn box)"
     DEP_WARN=1
 fi
+# 8c. DDS-Router — cầu M4 mặc định (tách domain box↔drone). KHÔNG cần cho
+# M1–M3 nên chỉ cảnh báo, không FAIL. Không có gói apt: phải build từ nguồn
+# theo recipe đã vendor trong repo (giữ đúng version 2.2.0 đã kiểm — bản 3.x
+# link Fast DDS 3.x, không nói chuyện được với Fast DDS 2.6 của Humble).
+DDSROUTER_BIN="${DDSROUTER_WS:-$HOME/DDS-Router-2.2}/install/ddsrouter_tool/bin/ddsrouter"
+if [ ! -x "$DDSROUTER_BIN" ]; then
+    echo -e "${YELLOW}[WARN] Chưa thấy DDS-Router 2.2.0 (chỉ cần cho M4 split-domain).${NC}"
+    echo    "       Build từ nguồn (~4 phút, không có gói apt):"
+    echo    "         mkdir -p ~/DDS-Router-2.2/src && cd ~/DDS-Router-2.2"
+    echo    "         cp $SCRIPT_DIR/ros2_ws/src/precision_landing/config/dds_router_2.2.0.repos ddsrouter.repos"
+    echo    "         vcs import src < ddsrouter.repos && colcon build"
+    echo    "       (đọc đầu file .repos để biết vì sao KHÔNG dùng bản 3.x mới nhất)"
+    DEP_WARN=1
+else
+    echo -e "${GREEN}[OK] DDS-Router sẵn sàng (M4 split-domain)${NC}"
+fi
+# 8d. domain_bridge — phương án DỰ PHÒNG cho M4 (gói apt, cầu ROS-native
+# `dib_domain_bridge` trong repo). Chỉ ghi chú, không cảnh báo: thiếu nó vẫn
+# chạy M4 bình thường bằng DDS-Router ở 8c.
+if ! ros2 pkg list 2>/dev/null | grep -qx "domain_bridge"; then
+    echo -e "${GREEN}[OK] (bỏ qua) domain_bridge chưa cài — chỉ cần nếu dùng cầu dự phòng${NC}"
+    echo    "       Nếu cần: sudo apt install -y ros-humble-domain-bridge"
+    echo    "       rồi: cd ros2_ws && colcon build --packages-select dib_domain_bridge"
+else
+    echo -e "${GREEN}[OK] domain_bridge sẵn sàng (cầu M4 dự phòng)${NC}"
+fi
 # 9. Camera gimbal — FOV quyết định cấu hình đã đo ra M3 PASS 8/8.
 # Repo nằm ở <px4>/examples/SITL_PrecisionLanding nên suy ra gốc cây PX4 từ
 # SCRIPT_DIR; ai để PX4 chỗ khác ~/PX4 vẫn kiểm đúng. Đặt PX4_DIR để ghi đè.
