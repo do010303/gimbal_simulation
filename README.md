@@ -137,7 +137,7 @@ Giữ nguyên T1, T2.
 | 3 | `ros2 launch precision_landing sitl_precland.launch.py` | bridge + tracker + controller |
 | 4 | `ros2 launch precision_landing sitl_mavros.launch.py` | MAVROS (đồng hồ mô phỏng — bắt buộc launch này, xem Phụ lục A.6) |
 | 5 | `ros2 launch precision_landing dib_bringup.launch.py` | cả 3 node phía box |
-| 6 | `ros2 launch $PWD/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture GPS, **chỉ SITL** |
+| 6 | `ros2 launch ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture GPS, **chỉ SITL** |
 | 7 | `ros2 run rqt_image_view rqt_image_view /landing/annotated_image` | HUD giám sát — mở suốt lượt chạy |
 
 **Kiểm 3 thứ trước khi bay** (10 giây bây giờ, tránh mất cả lượt bay):
@@ -170,7 +170,7 @@ BOX    -> SECURING_DRONE(8) -> CHARGING(9)
 
 Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal):
 ```bash
-python3 docs/m3_box_handshake_test/m3_full_loop_monitor.py
+python3 ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/m3_full_loop_monitor.py
 ```
 
 > **Đọc log và chẩn đoán khi có gì lệch:** dòng log trông như lỗi nhưng không
@@ -558,20 +558,88 @@ Mesh này là bản vendor của team khác nên repo giữ nguyên bản gốc;
 nhớ gzip lại (`gzip -k`) vì repo ship bản `.dae.gz`. `HEADLESS=1` (A.5) cũng bỏ
 hẳn tiến trình GUI của Gazebo.
 
-### A.10. Chạy tách domain box↔drone (tuỳ chọn, đang phát triển)
+### A.10. Chạy tách domain box↔drone (tuỳ chọn)
 
-Trên phần cứng thật, box và drone là hai máy riêng. Có thể mô phỏng điều đó
-trên một host bằng hai `ROS_DOMAIN_ID`, bắc cầu 3 giao diện hợp đồng
-(`/b2/telemetry`, `/d1/telemetry`, service `/b2/cmd`) qua `domain_bridge`
-(ROS-native). **Package cầu (`dib_domain_bridge`) chưa vào repo** — mục này
-ghi lại kế hoạch chạy khi nó sẵn sàng; hỏi trước khi dựa vào nó.
+Trên phần cứng thật, box và drone là hai máy riêng. Mô phỏng điều đó trên một
+host bằng hai `ROS_DOMAIN_ID`, bắc cầu đúng 3 giao diện hợp đồng — tất cả đều
+là **topic**:
 
-Vì sao không dùng DDS-Router: trên Humble (Fast DDS 2.6) DDS-Router 3.x không
-discovery được endpoint Humble, còn 2.2 bắc cầu topic được nhưng **không route
-reply** của service. `domain_bridge` xử lý cả topic lẫn service, không sửa
-dòng code hợp đồng nào.
+| Topic | Type | Hướng |
+|---|---|---|
+| `b2/telemetry` | `dib_msgs/msg/BoxTelemetry` | box (42) → drone (0) |
+| `d1/telemetry` | `dib_msgs/msg/DroneTelemetry` | drone (0) → box (42) |
+| `b2/drone_cmd` | `dib_msgs/msg/BoxCmd` | drone (0) → box (42) |
+| `/dock/drone_power` | `std_msgs/msg/Bool` — **fixture chỉ SITL** | box (42) → drone (0) |
 
-Cách chạy dự kiến: box terminal `export ROS_DOMAIN_ID=42`, drone terminal
-`export ROS_DOMAIN_ID=0`, T5 (mục 2.2) thêm `include_telemetry_bridge:=false`
-(đẩy `mavros_to_dib_telemetry` sang domain drone), cộng một terminal cầu
-`ros2 run dib_domain_bridge dib_split_bridge 42 0`.
+Cái thứ tư không phải hợp đồng: nó giả lập đường điện dock. Phần cứng thật cắt
+điện là máy tính drone tắt, `d1/telemetry` im ngay; SITL thì MAVROS vẫn chạy nên
+phải báo bằng topic. **Thiếu nó ở split-domain thì box kẹt ở `SECURING_DRONE`,
+không bao giờ tới `CHARGING`** (box chỉ đi tiếp khi `d1/telemetry` im quá 5 s).
+Trên máy thật thì bỏ dòng này khỏi cấu hình cầu.
+
+Cầu mặc định là **DDS-Router 2.2.0**. Build một lần (~4 phút, **không có gói
+apt**), recipe đã vendor trong repo để khoá đúng version đã kiểm:
+```bash
+mkdir -p ~/DDS-Router-2.2/src && cd ~/DDS-Router-2.2
+cp ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_2.2.0.repos ddsrouter.repos
+vcs import src < ddsrouter.repos
+source /opt/ros/humble/setup.bash && colcon build
+```
+
+Chạy: khác mục 2 ở 3 điểm — terminal box thêm `export ROS_DOMAIN_ID=42`,
+terminal drone `export ROS_DOMAIN_ID=0`; T5 thêm
+`include_telemetry_bridge:=false` (`mavros_to_dib_telemetry` đọc MAVROS nên
+thuộc phía drone, phải chạy riêng bên domain drone — `ROS_DOMAIN_ID` là
+per-process); và thêm một terminal cầu (**không** export domain nào):
+```bash
+cd ~/DDS-Router-2.2 && source install/setup.bash
+./install/ddsrouter_tool/bin/ddsrouter -c \
+  ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml
+```
+Run-sheet 7 terminal đầy đủ + kiểm cô lập/nhân quả:
+`docs/m4_split_domain_test/README.md`. Kiểm nhanh cầu **không cần Gazebo**
+(3 terminal, ~20 s): `docs/m4_split_domain_test/tier1/README.md`.
+
+**Ba điều phải biết trước khi sửa cấu hình cầu** (mỗi cái từng đốt vài giờ):
+
+1. **Phải là DDS-Router 2.x, không phải bản mới nhất.** Humble link Fast DDS
+   2.6.11; mọi bản DDS-Router 3.x kéo theo Fast DDS 3.x (v3.5.1→3.6.1), và
+   participant 3.6 **không discovery được** endpoint 2.6 — router vẫn báo
+   "running" nhưng bắc cầu con số không. Đo hai lần, hai bản build khác nhau.
+   Không sửa được bằng cấu hình: router link Fast DDS nào là do lúc build.
+2. **Mỗi participant phải có `whitelist-interfaces: ["127.0.0.1"]`.** SITL chạy
+   `ROS_LOCALHOST_ONLY=1` nên node ROS chỉ chấp nhận locator trên loopback;
+   router (Fast DDS thuần) bind mọi interface và quảng bá cả IP LAN thật →
+   locator của nó bị node ROS loại âm thầm, không cặp Reader/Writer nào khớp.
+   Trên **phần cứng thật** (máy riêng, không đặt `ROS_LOCALHOST_ONLY`) thì
+   ngược lại: đổi thành interface LAN thật, hoặc bỏ hẳn tag này.
+3. **Type tuỳ biến phải khai cả `name` lẫn `type` trong `allowlist`.** Chế độ
+   "không allowlist, bridge mọi thứ" mang được `std_msgs/String` nhưng mang 0
+   message cho `dib_msgs/BoxCmd`. Type DDS-mangled theo mẫu
+   `<ros_pkg>::msg::dds_::<MsgName>_`.
+
+**Vì sao `b2/drone_cmd` là topic chứ không phải service `b2/cmd` như trước.**
+DDS-Router 2.2.0 không bao giờ route **reply** của ROS 2 service qua domain
+(request qua được, reply mất — đo với cả `dib_msgs/BoxCmd` lẫn service chuẩn
+`AddTwoInts`). Bỏ service khỏi đường M4 rẻ hơn nhiều so với ghép thêm một cầu
+thứ hai, và **không mất gì**: reply cũ vốn vô nghĩa —
+`box_state_manager::box_cmd_callback()` set `success=true` ngay dòng đầu rồi
+mới ném việc sang thread rời, nên telemetry mới là xác nhận thật (comment
+trong `box_link.hpp` đã ghi điều này từ M3). Service `b2/cmd` vẫn phục vụ vai
+trò operator/server, chỉ là không đi qua ranh giới domain.
+
+> **Cầu dự phòng:** `dib_domain_bridge` (dùng `domain_bridge`, cài bằng apt
+> trong vài giây thay vì build 4 phút, và bắc cầu được cả service nếu hợp đồng
+> sau này cần lại). Thay terminal cầu ở trên bằng:
+> ```bash
+> sudo apt install -y ros-humble-domain-bridge      # một lần
+> cd ros2_ws && colcon build --packages-select dib_domain_bridge
+> ros2 run dib_domain_bridge dib_split_bridge 42 0  # arg1=box domain, arg2=drone domain
+> ```
+> Chi tiết: `ros2_ws/src/dib_domain_bridge/README.md`.
+
+> **Chẩn đoán:** `ros2 topic echo/list/info` hay treo hoặc ném
+> `xmlrpc.client.Fault: !rclpy.ok()` khi soi topic cross-domain — đó là lớp
+> daemon XML-RPC của `ros2cli`, **không** phản ánh cầu có chạy hay không (kể cả
+> sau `ros2 daemon stop`). Dùng subscriber `rclpy` viết tay để kiểm; mẫu có sẵn
+> trong `docs/m4_split_domain_test/tier1/README.md`.
