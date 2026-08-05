@@ -85,118 +85,101 @@ SYSTEM_REQS = [
      "tín hiệu box) thực hiện hạ cánh dự phòng (Fallback landing)."),
 ]
 
-# (REQ-Mx-NN, Tên ngắn, Mô tả (What), Kiểm chứng, Truy vết REQ hệ thống cha, DES tham chiếu)
-MILESTONE_REQS = [
-    ("REQ-M1-01", "Build sạch, không phụ thuộc ngoài repo",
-     "box_state_manager_node phải build sạch bằng colcon khi chỉ phụ thuộc "
-     "bộ dib_msgs trong repo (không phụ thuộc kho message ngoài).",
-     "Test", "Ràng buộc triển khai nội bộ — tiền đề để mọi REQ_BOX_* phía "
-     "sau kiểm chứng được trên SITL clone-and-run.", "DES-01"),
-    ("REQ-M1-02", "FSM box chuyển đúng chuỗi khi nhận lệnh hạ cánh",
-     "Khi nhận BoxCmd(REQUEST_LANDING) hợp lệ lúc đang EMPTY, box phải "
-     "chuyển đúng chuỗi EMPTY -> IDLE -> PREPARING_FOR_LANDING -> "
-     "WAITING_FOR_LANDING(7).",
-     "Demonstration", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020", "DES-01"),
-    ("REQ-M1-03", "FSM box khép vòng đời tới sạc",
-     "Khi nhận DroneTelemetry báo ON_GROUND lúc đang WAITING_FOR_LANDING(7), "
-     "box phải chuyển tiếp SECURING_DRONE(8) -> CHARGING(9).",
-     "Demonstration", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020", "DES-01"),
-    ("REQ-M1-04", "Chạy độc lập, không cần drone stack/Gazebo",
-     "box_state_manager phải chạy được độc lập, không cần drone stack hay "
-     "Gazebo, chỉ tương tác qua giao diện dib_msgs.",
-     "Test", "Ràng buộc triển khai nội bộ — cô lập rủi ro khỏi mô phỏng.",
-     "DES-01"),
-    ("REQ-M2-01", "Dịch lệnh dib_msgs sang JointTrajectory",
-     "box_hardware_adapter phải dịch mỗi lệnh dib_msgs (LidCmd, ClampCmd, "
-     "ChargeCmd, CoolingCmd, PowerButtonCmd) thành lệnh JointTrajectory "
-     "tương ứng cho box_simulation.",
-     "Demonstration", "REQ_BOX_PHY_0005, REQ_BOX_PHY_0006", "DES-02"),
-    ("REQ-M2-02", "Trạng thái phản hồi suy ra từ chuyển động thật",
-     "adapter phải phát LidStatus và ClampStatus suy ra từ /joint_states "
-     "thật của ros2_control, không phải giá trị dựng sẵn.",
-     "Test", "REQ_BOX_PHY_0005, REQ_BOX_PHY_0006", "DES-02"),
-    ("REQ-M2-03", "Telemetry drone ánh xạ từ MAVROS thật",
-     "mavros_to_dib_telemetry phải ánh xạ /mavros/state và "
-     "/mavros/extended_state thành d<id>/telemetry, với landed_state phản "
-     "ánh land detector của PX4.",
-     "Analysis + Demonstration", "REQ_UAV_FLY_0020", "DES-02"),
-    ("REQ-M2-04", "Không sửa mã nguồn hai đầu đã có",
-     "Việc tích hợp không được sửa mã nguồn của box_manager lẫn "
-     "box_simulation; chỉ được thêm lớp adapter.",
-     "Inspection", "Ràng buộc kiến trúc nội bộ.", "DES-02"),
-    ("REQ-M3-01", "Hai trạng thái bắt tay mới trong FSM drone",
-     "offboard_precland_controller phải bổ sung hai trạng thái "
-     "PRELANDING_CHECK và WAIT_BOX_READY vào FSM hiện có.",
-     "Inspection + Test", "REQ_UAV_FLY_0020", "DES-03"),
-    ("REQ-M3-02", "Gửi REQUEST_LANDING đúng một lần",
-     "Khi vào WAIT_BOX_READY, controller phải gửi REQUEST_LANDING qua "
-     "BoxCmd đúng một lần (idempotent, không lặp), kèm agent_id đúng của "
-     "drone.",
-     "Test", "REQ_UAV_FLY_0020", "DES-03"),
-    ("REQ-M3-03", "Không hạ cánh khi box chưa sẵn sàng",
-     "controller chỉ được rời WAIT_BOX_READY sang START SAU KHI box báo "
-     "WAITING_FOR_LANDING(7).",
-     "Demonstration", "REQ_UAV_FLY_0020", "DES-03"),
-    ("REQ-M3-04", "Tách logic bắt tay khỏi controller",
-     "Toàn bộ logic MAVLink/service phía box phải nằm trong module BoxLink "
-     "tách riêng, không đặt trong file controller.",
-     "Inspection", "Ràng buộc kiến trúc nội bộ.", "DES-03"),
-    ("REQ-M3-05", "Vòng kín khép tới CHARGING, sai số đo định lượng",
-     "Vòng kín phải chạy tới CHARGING(9) và sai số hạ cánh phải được đo "
-     "định lượng.",
-     "Test + Analysis", "REQ_UAV_TALA_0007, REQ_UAV_TALA_0008", "DES-04"),
-    ("REQ-M4-01", "Bắc cầu đúng-đủ 3 giao diện hợp đồng",
-     "Hệ thống phải bắc cầu đúng 3 giao diện hợp đồng (b2/telemetry, "
-     "d1/telemetry, b2/drone_cmd) giữa box domain và drone domain, không rò "
-     "rỉ thêm dữ liệu ngoài hợp đồng.",
-     "Test", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020", "DES-06"),
-    ("REQ-M4-02", "Vòng đời khép trọn qua ranh giới domain",
-     "Vòng đời drone-in-a-box (EMPTY -> ... -> CHARGING) phải chạy trọn vẹn "
-     "qua ranh giới domain, không cần sửa logic FSM ở box_manager hay "
-     "offboard_precland_controller.",
-     "Demonstration", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020", "DES-07, DES-08"),
-    ("REQ-M4-03", "An toàn khi mất cầu giữa chừng",
-     "Mất cầu (cầu chết/tắt) giữa chừng phải khiến hệ thống rơi về hành vi "
-     "an toàn đã định nghĩa (FALLBACK/AUTO.LAND) trong đúng thời hạn "
-     "timeout thiết kế (30.0s), không treo vô thời hạn.",
-     "Test", "REQ_UAV_FLY_0020 (hạ cánh dự phòng)", "DES-04"),
-    ("REQ-M4-04", "Nghiệm thu bằng bằng chứng nhân quả",
-     "Nghiệm thu phải có bằng chứng nhân quả (cổng UDP, thứ tự thời gian, "
-     "log ứng dụng hai phía) rằng dữ liệu thực sự đi qua cầu domain, không "
-     "phải rò rỉ cục bộ cùng host.",
-     "Analysis + Demonstration", "Kế thừa phương pháp DES-04 (M3).", "DES-04"),
-    ("REQ-M4-05", "Không phụ thuộc một công cụ bắc cầu duy nhất",
-     "Phải có cầu dự phòng khả dụng nếu cầu chính (DDS-Router) không cài "
-     "được trên một máy (không có gói apt, phải build từ nguồn).",
-     "Inspection + Test", "Ràng buộc kỹ thuật tự đặt ra — giảm phụ thuộc "
-     "đơn điểm khi đóng gói triển khai.", "DES-09"),
-    ("REQ-M5-01", "Cổng go/no-go một lệnh",
-     "Phải có một lệnh duy nhất kiểm đủ điều kiện trước mỗi lượt bay (môi "
-     "trường build, tiến trình cũ còn sót, 3 mục kiểm trước bay), không "
-     "phụ thuộc trí nhớ người vận hành.",
-     "Demonstration", "DoD Milestone M5 (mục 3) — không có REQ hệ thống "
-     "trực tiếp, đây là yêu cầu vận hành.", "DES-10"),
-    ("REQ-M5-02", "Một tài liệu chạy-được duy nhất",
-     "Toàn bộ hướng dẫn chạy hệ thống phải nằm trong một tài liệu duy nhất, "
-     "đường dẫn đúng cho máy trống, clone-and-run được từ đầu tới cuối.",
-     "Inspection", "DoD Milestone M5 (mục 3).", "—"),
-    ("REQ-M5-03", "Mất cầu split-domain phải quan sát được",
-     "Khi cầu split-domain (M4) chết hoặc bị dừng, hệ thống phải có tín "
-     "hiệu quan sát được (không im lặng) để người vận hành phát hiện, "
-     "không chỉ phát hiện được gián tiếp qua timeout 30s của FSM.",
-     "Test", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020 (toàn vẹn hợp đồng M4)",
-     "DES-11"),
-    ("REQ-M5-04", "Phát hiện telemetry drone quá cũ",
-     "box phải phát hiện được khi drone_telemetry không cập nhật quá một "
-     "ngưỡng thời gian trong lúc đang WAITING_FOR_LANDING, và cảnh báo "
-     "được (không đổi hành vi FSM).",
-     "Test", "REQ_BOX_FEA_0003, REQ_UAV_FLY_0020 (toàn vẹn hợp đồng M4)",
-     "DES-12"),
-    ("REQ-M5-05", "Repo đóng gói không chứa rác ngoài cây build",
-     "Cây thư mục đóng gói (repo + máy phát triển) không được chứa bản sao "
-     "cũ/rác không cần thiết ngoài cây build — hoặc nếu còn (việc dở của "
-     "người khác), phải được xác định rõ và không lẫn vào sản phẩm giao.",
-     "Inspection", "DoD Milestone M5 (mục 3).", "—"),
+# (REQ ID, Tên yêu cầu, Mô tả (What), Tiêu chí nghiệm thu, Tham chiếu, Ghi chú)
+# Nhóm theo nhu cầu chức năng thực tế, KHÔNG theo milestone — một REQ có thể
+# được kiểm chứng lại ở nhiều milestone liên tiếp (liệt kê trong Tham chiếu).
+FUNCTIONAL_REQS = [
+    ("REQ_DIB_BOX_STATE_001", "Box phải mở đường tiếp nhận khi được yêu cầu hạ cánh",
+     "Khi nhận yêu cầu hạ cánh hợp lệ lúc đang trống, box phải mở nắp/kẹp "
+     "và chuyển sang trạng thái sẵn sàng đón drone trong thời gian hữu hạn.",
+     "Đúng trình tự EMPTY -> IDLE -> PREPARING_FOR_LANDING -> "
+     "WAITING_FOR_LANDING(7); PASS driver headless (M1, exit code 0), lặp "
+     "lại đúng qua Gazebo thật (M2 test 6a, M3 PASS 8/8) và qua "
+     "split-domain (M4 PASS 8/8).",
+     "DES-01, DES-03, DES-06, DES-07 · M1, M2, M3, M4", ""),
+    ("REQ_DIB_BOX_STATE_002", "Box phải xác nhận drone đã hạ cánh thật trước khi bảo vệ",
+     "Box chỉ được kẹp giữ/đóng nắp sau khi có xác nhận thật drone đã chạm "
+     "đất, không suy đoán bằng thời gian chờ.",
+     "SECURING_DRONE(8) kích đúng thời điểm MAVROS landed_state=ON_GROUND "
+     "(M2 test 6b); lặp lại đúng ở M3 (PASS 8/8), M4 split-domain (PASS 8/8).",
+     "DES-02 · M2, M3, M4", ""),
+    ("REQ_DIB_BOX_STATE_003", "Box phải tự khép chu trình bảo vệ và chuyển sang sạc",
+     "Sau khi bảo vệ drone xong (kẹp, đóng nắp, cắt điện an toàn), box phải "
+     "tự động chuyển sang trạng thái sạc, không cần can thiệp tay.",
+     "Chuỗi SECURING_DRONE(8) -> CHARGING(9) hoàn tất tự động; đo M4: "
+     "POWER_OFF -> CHARGING ~4.6s sau khi cắt điện.",
+     "DES-01, DES-08 · M1, M2, M3, M4", ""),
+    ("REQ_DIB_BOX_STATE_004", "Trạng thái cơ cấu chấp hành báo cáo phải đúng thực tế vật lý",
+     "Trạng thái cửa/kẹp mà box báo cho hệ thống phải phản ánh đúng chuyển "
+     "động vật lý thật, không phải giá trị giả định — tránh hệ thống "
+     "'tưởng' cửa đã mở khi thực tế còn kẹt.",
+     "LidStatus/ClampStatus suy từ /joint_states thật; đo M2: lid chuyển "
+     "động >0.5 rad, clamp đạt ~200mm trên Gazebo thật.",
+     "DES-02 · M2", "Liên quan REQ_BOX_PHY_0005/0006 (thời gian đóng-mở "
+     "đã đo ở mức hệ thống)."),
+    ("REQ_DIB_COORD_001", "Drone không được hạ cánh khi box chưa sẵn sàng đón",
+     "Drone phải chờ box xác nhận đã sẵn sàng (mở nắp) trước khi bắt đầu "
+     "quy trình hạ cánh thị giác — tránh hạ vào box còn đóng.",
+     "Controller chỉ rời trạng thái chờ sang hạ cánh SAU KHI box báo "
+     "WAITING_FOR_LANDING(7); xác nhận bằng nhân quả qua monitor thụ động, "
+     "PASS 8/8 (M3), PASS 8/8 (M4 split-domain).",
+     "DES-03, DES-04 · M3, M4", ""),
+    ("REQ_DIB_COORD_002", "Một lượt bay đầy đủ phải khép kín tới sạc với sai số đo được",
+     "Vòng đời từ cất cánh tới box sạc xong phải chạy trọn, và sai số hạ "
+     "cánh phải đo định lượng được (không chỉ quan sát định tính).",
+     "PASS 8/8 (M3): sai số vị trí 4.9cm/1.6cm, yaw 0.00 độ; PASS 8/8 (M4, "
+     "split-domain): sai số 2.2cm, yaw 0.01 độ.",
+     "DES-04, DES-05 · M3, M4", "Đạt REQ_UAV_TALA_0007/0008 với biên độ lớn."),
+    ("REQ_DIB_NET_001", "Hệ thống phải hoạt động đúng khi box và drone tách hai domain mạng",
+     "Toàn bộ hành vi phối hợp box-drone (các REQ ở trên) phải giữ nguyên "
+     "khi box và drone chạy trên hai ROS_DOMAIN_ID tách biệt — bước chuẩn "
+     "bị triển khai trên hai máy vật lý qua LAN thật.",
+     "PASS 8/8 driver tự động, split-domain (M4); bằng chứng dữ liệu thật "
+     "sự qua cầu bằng đo cổng UDP (domain 0 -> 7400, domain 42 -> 17900).",
+     "DES-06, DES-07, DES-08, DES-09 · M4", ""),
+    ("REQ_DIB_NET_002", "Mất kết nối box-drone giữa chừng phải dẫn tới hạ cánh an toàn trong thời hạn xác định",
+     "Nếu đường truyền giữa box và drone bị gián đoạn trong lúc đang bắt "
+     "tay, drone không được treo vô thời hạn mà phải chuyển sang hạ cánh "
+     "dự phòng trong thời hạn xác định trước.",
+     "Kịch bản tắt cầu giữa chuyến bay đang sống (M4): box đứng nguyên "
+     "EMPTY suốt 39.5s, đúng 30.0s FALLBACK kích hoạt tự nhiên, hệ thống "
+     "chuyển AUTO.LAND an toàn.",
+     "DES-04 · M4", "Hiện thực REQ_UAV_FLY_0020 (hạ cánh dự phòng) trong "
+     "điều kiện mất mạng, không chỉ mất GPS/box."),
+    ("REQ_DIB_NET_003", "Người vận hành phải phát hiện được khi mất kết nối box-drone",
+     "Việc mất cầu kết nối phải quan sát được trực tiếp, không chỉ suy ra "
+     "gián tiếp sau khi hệ thống timeout — rút ngắn thời gian chẩn đoán "
+     "sự cố.",
+     "Tín hiệu heartbeat định kỳ 10s từ cầu; mất tín hiệu >10s = cầu chết "
+     "(kiểm bằng smoke test 13s, M5).",
+     "DES-11 · M5", ""),
+    ("REQ_DIB_NET_004", "Box phải phát hiện khi dữ liệu trạng thái drone ngừng cập nhật",
+     "Trong lúc chờ drone hạ cánh, box phải nhận biết được khi không còn "
+     "nhận telemetry mới từ drone quá lâu, tránh dựa vào dữ liệu cũ mà "
+     "không hay biết.",
+     "Cảnh báo khi telemetry cũ quá 5.0s trong lúc WAITING_FOR_LANDING; "
+     "không đổi hành vi FSM (kiểm bằng build + test thủ công, M5).",
+     "DES-12 · M5", ""),
+    ("REQ_DIB_OPS_001", "Người vận hành phải kiểm tra được điều kiện bay đủ trong một bước",
+     "Trước mỗi lượt bay, phải có cách kiểm nhanh, không phụ thuộc trí nhớ "
+     "nhiều bước tay, để xác nhận hệ thống đủ điều kiện bay.",
+     "go/no-go chạy đúng ở cả chế độ có box và không có box, báo đúng "
+     "GO/NO-GO theo trạng thái pipeline thật (M5).",
+     "DES-10 · M5", ""),
+    ("REQ_DIB_OPS_002", "Người mới phải chạy được hệ thống chỉ từ tài liệu",
+     "Toàn bộ hướng dẫn cài đặt, chạy và xử lý sự cố phải nằm ở một nơi tra "
+     "cứu được, đúng đường dẫn, không phụ thuộc tài liệu lỗi thời.",
+     "README là mục lục chạy-được duy nhất, 0 dấu vết tài liệu cũ "
+     "(gimbal_simulation) trong repo; rà theo góc nhìn máy trống xác nhận "
+     "đủ bước (M5).",
+     "— · M5", "DoD Milestone M5 (mục 3, kế hoạch gốc)."),
+    ("REQ_DIB_OPS_003", "Sản phẩm bàn giao không được lẫn rác/bản sao cũ",
+     "Cây thư mục đóng gói và máy phát triển không được chứa bản sao/rác "
+     "gây nhầm lẫn cho người triển khai lại.",
+     "Đã xoá phần rác xác nhận an toàn (trùng lặp, không .git); các phần "
+     "còn việc dở của người khác đã xác định rõ, không đưa vào sản phẩm "
+     "giao (M5).",
+     "— · M5", ""),
 ]
 
 DES_LIST = [
@@ -204,38 +187,38 @@ DES_LIST = [
      "box_state_manager điều khiển thuần bằng contract dib_msgs (BoxCmd "
      "vào, BoxTelemetry/BoxState ra) — kích thích/quan sát được bằng driver "
      "script thuần Python, không cần Gazebo hay drone stack.",
-     "REQ-M1-01, REQ-M1-02, REQ-M1-03, REQ-M1-04"),
+     "REQ_DIB_BOX_STATE_001, REQ_DIB_BOX_STATE_003"),
     ("DES-02", "Mẫu Adapter, không sửa hai đầu (M2)",
      "Chèn lớp box_hardware_adapter dịch dib_msgs <-> JointTrajectory giữa "
      "box_manager và box_simulation, thêm component thứ tư "
      "mavros_to_dib_telemetry cho hướng drone->box — không sửa mã nguồn "
      "hai hệ đã có.",
-     "REQ-M2-01, REQ-M2-02, REQ-M2-03, REQ-M2-04"),
+     "REQ_DIB_BOX_STATE_002, REQ_DIB_BOX_STATE_004"),
     ("DES-03", "Module BoxLink + 2 state bắt tay (M3)",
      "Toàn bộ logic bắt tay box (gửi REQUEST_LANDING, chờ WAITING_FOR_LANDING) "
      "đóng gói trong module BoxLink riêng (controller chỉ giữ một instance "
      "box_link_), hai trạng thái PRELANDING_CHECK/WAIT_BOX_READY thêm vào "
      "FSM offboard_precland_controller.",
-     "REQ-M3-01, REQ-M3-02, REQ-M3-03, REQ-M3-04"),
+     "REQ_DIB_BOX_STATE_001, REQ_DIB_COORD_001"),
     ("DES-04", "Nghiệm thu bằng monitor thụ động + tiêu chí nhân quả (M3, M4)",
      "Driver nghiệm thu chỉ SUBSCRIBE (không publish/gọi service), chấm PASS "
      "dựa trên thứ tự thời gian giữa hai FSM (box rời EMPTY sau khi drone "
      "vào WAIT_BOX_READY; drone vào START sau khi box đạt "
      "WAITING_FOR_LANDING) — loại trừ khả năng PASS giả do harness tự kích "
      "thích hệ thống.",
-     "REQ-M3-05, REQ-M4-03, REQ-M4-04"),
+     "REQ_DIB_COORD_001, REQ_DIB_COORD_002, REQ_DIB_NET_002"),
     ("DES-05", "Hợp nhất world + marker trên thân box (M3)",
      "Marker fractal đặt trực tiếp trên sàn box trong cùng world Gazebo với "
      "drone, thay vì hai world tách rời — cho phép vòng kín thị giác thật "
      "chạy tới CHARGING.",
-     "REQ-M3-05"),
+     "REQ_DIB_COORD_002"),
     ("DES-06", "DDS-Router 2.2.0 + whitelist-interfaces per-participant (M4)",
      "Cầu domain mặc định là DDS-Router 2.2.0 (Fast DDS 2.14.0, cùng dòng "
      "2.x với rmw_fastrtps Humble). Mỗi participant trong config khai "
      "whitelist-interfaces: [\"127.0.0.1\"] (tag per-participant, không "
      "phải top-level) để tránh locator LAN thật bị loại. allowlist khai "
      "tường minh cả name lẫn type DDS-mangled cho message tuỳ biến.",
-     "REQ-M4-01, REQ-M4-02"),
+     "REQ_DIB_BOX_STATE_001, REQ_DIB_NET_001"),
     ("DES-07", "Lệnh drone->box chuyển từ service sang topic (M4)",
      "b2/cmd (service) không còn dùng cho đường bắc cầu vì DDS-Router 2.2.0"
      " không bao giờ route reply qua domain (bug thật, đo với cả message "
@@ -243,7 +226,7 @@ DES_LIST = [
      "chuyển sang topic b2/drone_cmd (dib_msgs/BoxCmd, thêm field "
      "command/reserve/agent_id). Service b2/cmd vẫn giữ cho vai trò "
      "operator/server nội bộ, chỉ không đi qua ranh giới domain nữa.",
-     "REQ-M4-01, REQ-M4-02"),
+     "REQ_DIB_BOX_STATE_001, REQ_DIB_NET_001"),
     ("DES-08", "Fixture SITL /dock/drone_power thay đường điện vật lý (M4)",
      "Trên phần cứng thật, box cắt điện làm máy tính drone tắt hẳn nên "
      "d1/telemetry im miễn phí. Trong SITL MAVROS vẫn chạy, nên "
@@ -251,33 +234,34 @@ DES_LIST = [
      "(RELIABLE/TRANSIENT_LOCAL) và mavros_to_dib_telemetry ngừng phát khi "
      "nhận false — topic này phải nằm trong allowlist bắc cầu, thiếu nó box "
      "kẹt vĩnh viễn ở SECURING_DRONE.",
-     "REQ-M4-02"),
+     "REQ_DIB_BOX_STATE_003, REQ_DIB_NET_001"),
     ("DES-09", "Cầu dự phòng dib_domain_bridge (M4)",
      "Gói ros-humble-domain-bridge (cài từ apt, vài giây) làm cầu dự phòng "
      "khi máy không build được DDS-Router 2.2.0 từ nguồn (~4 phút). Bắc cầu "
      "cùng 3 giao diện hợp đồng + fixture /dock/drone_power, cộng heartbeat "
      "log định kỳ (DES-11).",
-     "REQ-M4-05"),
+     "REQ_DIB_NET_001 (giảm rủi ro triển khai — không bắt buộc bởi REQ nào "
+     "trực tiếp)"),
     ("DES-10", "Cổng go/no-go một lệnh (M5)",
      "scripts/go_no_go.sh gộp verify_build_env.sh (môi trường build), kiểm "
      "tiến trình cũ còn sót (cùng pattern với stop_pipeline.sh), và 3 mục "
      "kiểm trước bay (use_sim_time, controller active, MAVROS connected) — "
      "tự nhận biết chế độ có/không có box (README mục 2 và 3).",
-     "REQ-M5-01"),
+     "REQ_DIB_OPS_001"),
     ("DES-11", "Heartbeat log định kỳ trong dib_split_bridge (M5)",
      "Timer 10s log uptime + domain đang bắc cầu trong "
      "dib_split_bridge.cpp — biến 'cầu chết im lặng' (DDS-Router và "
      "domain_bridge đều không log từng message) thành 'thiếu dòng heartbeat "
      "gần nhất là cầu chết', quan sát được từ ngoài mà không cần công cụ đo "
      "mạng.",
-     "REQ-M5-03"),
+     "REQ_DIB_NET_003"),
     ("DES-12", "Cảnh báo throttle telemetry cũ trong box_state_manager (M5)",
      "Lưu last_drone_telemetry_time_ (cùng mẫu last_*_time_ đã dùng ở "
      "offboard_precland_controller), so sánh ngưỡng 5.0s, RCLCPP_WARN_THROTTLE"
      " khi đang WAITING_FOR_LANDING — chỉ chẩn đoán, không đổi hành vi FSM "
      "(SECURING_DRONE/POWER_OFF cố ý không kiểm vì staleness ở đó là trigger "
      "CHARGING bình thường, không phải lỗi).",
-     "REQ-M5-04"),
+     "REQ_DIB_NET_004"),
 ]
 
 
@@ -300,7 +284,9 @@ def gen_doc1():
             "được build/chạy trong SITL — README của nó trỏ sang một kho "
             "dib_msgs GitLab riêng, không trỏ bộ dib_msgs local. Chưa có "
             "bằng chứng nào cho thấy state machine của box chạy đúng đặc tả.")
-    para(d, "Yêu cầu: REQ-M1-01..04 — xem docs/DIB_REQ_DES.docx.")
+    para(d, "Yêu cầu liên quan: REQ_DIB_BOX_STATE_001, REQ_DIB_BOX_STATE_003 "
+            "(kiểm bằng driver headless ở mức này — chưa tích hợp phần "
+            "cứng/FSM drone thật) — xem docs/DIB_REQ_DES.docx.")
     para(d, "Thiết kế: DES-01 (contract-first FSM) — xem docs/DIB_REQ_DES.docx.")
     para(d, "DoD: colcon build sạch; log chuyển trạng thái đi đúng enum khi "
             "kích lệnh tay qua driver.")
@@ -316,8 +302,8 @@ def gen_doc1():
     ])
     h2(d, "Kết quả đạt được")
     para(d, "Driver theo dõi /box/state đi trọn tới CHARGING -> RESULT: PASS "
-            "(exit code 0). Cả 4 yêu cầu REQ-M1-01..04 đạt. Đây là nền để "
-            "M2/M3 tích hợp phần thật.")
+            "(exit code 0). REQ_DIB_BOX_STATE_001, REQ_DIB_BOX_STATE_003 đạt "
+            "ở mức driver headless. Đây là nền để M2/M3 tích hợp phần thật.")
 
     h1(d, "2. M2 — Box hardware adapter + telemetry bridge")
     para(d, "Trạng thái: Đã hoàn thành (26/07/2026)")
@@ -328,7 +314,8 @@ def gen_doc1():
             " box_manager cũng cần biết drone đã hạ thật để chuyển "
             "SECURING_DRONE — tín hiệu này phải đến từ PX4, không phải "
             "phỏng đoán.")
-    para(d, "Yêu cầu: REQ-M2-01..04 — xem docs/DIB_REQ_DES.docx.")
+    para(d, "Yêu cầu liên quan: REQ_DIB_BOX_STATE_002, REQ_DIB_BOX_STATE_004 "
+            "— xem docs/DIB_REQ_DES.docx.")
     para(d, "Thiết kế: DES-02 (mẫu Adapter) — xem docs/DIB_REQ_DES.docx.")
     para(d, "DoD: gọi /lid/cmd OPEN -> lid Gazebo mở thật -> box_manager tự "
             "chuyển PREPARING_FOR_LANDING -> WAITING_FOR_LANDING không cần "
@@ -353,7 +340,7 @@ def gen_doc1():
     para(d, "3/3 test PASS trên hệ thống thật: 6a-unit (logic adapter), "
             "6a-full (lid chuyển động >0.5 rad, clamp đạt ~200mm trên Gazebo "
             "thật), 6b (MAVROS landed passthrough đúng thời điểm). "
-            "REQ-M2-01..04 đạt.")
+            "REQ_DIB_BOX_STATE_002, REQ_DIB_BOX_STATE_004 đạt.")
 
     h1(d, "3. M3 — Bắt tay FSM drone<->box qua BoxLink")
     para(d, "Trạng thái: Đã hoàn thành (30/07/2026)")
@@ -364,7 +351,9 @@ def gen_doc1():
             "contract, và phải chứng minh sự khép vòng là NHÂN QUẢ (do "
             "REQUEST_LANDING gây ra) chứ không phải sản phẩm phụ của trigger "
             "tay còn sót.")
-    para(d, "Yêu cầu: REQ-M3-01..05 — xem docs/DIB_REQ_DES.docx.")
+    para(d, "Yêu cầu liên quan: REQ_DIB_COORD_001, REQ_DIB_COORD_002 (tái "
+            "xác nhận REQ_DIB_BOX_STATE_001/002/003 với vòng lặp thật) — "
+            "xem docs/DIB_REQ_DES.docx.")
     para(d, "Thiết kế: DES-03 (module BoxLink), DES-04 (monitor thụ động), "
             "DES-05 (world hợp nhất) — xem docs/DIB_REQ_DES.docx.")
     para(d, "DoD: sitl_precland.launch.py chạy, /lander/state đi đủ chuỗi "
@@ -387,7 +376,7 @@ def gen_doc1():
             "vòng kín chạy tới CHARGING(9). Sai số hạ cánh THẬT đo được lần "
             "đầu = 4.9 cm. Các mốc con: M3a bắt tay FSM, M3b world hợp nhất "
             "(PASS 7/7), M3c khép vòng tới CHARGING (PASS 8/8), M3d dọn log "
-            "+ báo vị trí. REQ-M3-01..05 đạt.")
+            "+ báo vị trí. REQ_DIB_COORD_001, REQ_DIB_COORD_002 đạt.")
 
     h1(d, "4. M4 — Tách domain box<->drone, bắc cầu hợp đồng (DDS-Router)")
     para(d, "Trạng thái: Đã hoàn thành (05/08/2026)")
@@ -398,7 +387,9 @@ def gen_doc1():
             "hai ROS_DOMAIN_ID riêng — cần chứng minh trước, trên một host, "
             "rằng vòng đời khép được qua ranh giới domain mà không sửa logic "
             "nghiệp vụ hai FSM đã có (M1/M3), chỉ thêm hạ tầng bắc cầu.")
-    para(d, "Yêu cầu: REQ-M4-01..05 — xem docs/DIB_REQ_DES.docx.")
+    para(d, "Yêu cầu liên quan: REQ_DIB_NET_001, REQ_DIB_NET_002 (+ tái xác "
+            "nhận REQ_DIB_BOX_STATE_*/REQ_DIB_COORD_* qua split-domain) — "
+            "xem docs/DIB_REQ_DES.docx.")
     para(d, "Thiết kế: DES-06 (DDS-Router + whitelist-interfaces), DES-07 "
             "(lệnh drone->box chuyển service->topic), DES-08 (fixture "
             "/dock/drone_power), DES-09 (cầu dự phòng dib_domain_bridge) — "
@@ -443,7 +434,7 @@ def gen_doc1():
             "ở EMPTY suốt 39.5s, đúng 30.0s FALLBACK in ra tự nhiên, hệ "
             "thống rơi về AUTO.LAND an toàn (aim_error=2.385m, kém chính xác "
             "hơn ~100 lần so với hạ cánh thị giác — đúng hành vi thiết kế, "
-            "không phải lỗi). REQ-M4-01..05 đạt.")
+            "không phải lỗi). REQ_DIB_NET_001, REQ_DIB_NET_002 đạt.")
 
     h1(d, "5. M5 — Hardening + debug + đóng gói")
     para(d, "Trạng thái: Đang triển khai (kế hoạch/định hướng — cập nhật khi "
@@ -457,7 +448,9 @@ def gen_doc1():
             "message), box không phát hiện telemetry drone quá cũ, và máy "
             "phát triển còn rác ngoài repo (bản sao cũ box_manager/... không "
             "còn cần).")
-    para(d, "Yêu cầu: REQ-M5-01..05 — xem docs/DIB_REQ_DES.docx.")
+    para(d, "Yêu cầu liên quan: REQ_DIB_NET_003, REQ_DIB_NET_004, "
+            "REQ_DIB_OPS_001, REQ_DIB_OPS_002, REQ_DIB_OPS_003 — xem "
+            "docs/DIB_REQ_DES.docx.")
     para(d, "Thiết kế dự kiến: DES-10 (cổng go/no-go), DES-11 (heartbeat "
             "cầu), DES-12 (cảnh báo telemetry cũ) — xem docs/DIB_REQ_DES.docx.")
     para(d, "DoD (theo bảng milestone gốc): luồng SITL chạy ổn; README "
@@ -524,7 +517,8 @@ def gen_doc1():
          "Hạ cánh + fallback vẫn đúng qua split-domain: kịch bản tắt cầu "
          "giữa một chuyến bay đang sống xác nhận FALLBACK kích đúng 30.0s, "
          "rơi về AUTO.LAND an toàn."),
-        ("REQ-M5-01..05", "M5", "Đang triển khai",
+        ("REQ_DIB_NET_003, REQ_DIB_NET_004, REQ_DIB_OPS_001..003", "M5",
+         "Đang triển khai",
          "go/no-go + heartbeat cầu + cảnh báo telemetry cũ đã code/build; "
          "dọn rác đóng gói + rà runbook máy sạch chưa chốt hẳn."),
     ])
@@ -550,15 +544,16 @@ def gen_doc2():
     table(d, ["REQ ID", "Tên yêu cầu", "Mô tả (What)", "Giá trị/Tham chiếu"],
           SYSTEM_REQS)
 
-    h2(d, "1.2. Yêu cầu đặc thù theo Milestone")
-    para(d, "Cột 'Truy vết' chỉ rõ REQ hệ thống cha (hoặc DES bậc cao hơn) mà "
-            "REQ này phục vụ — theo yêu cầu traceability của Appendix C, NASA "
-            "Systems Engineering Handbook. Cột 'DES' trỏ sang mã DES tương "
-            "ứng ở mục 2 bên dưới.")
+    h2(d, "1.2. Yêu cầu đặc thù (theo nhu cầu chức năng, không theo Milestone)")
+    para(d, "Một REQ có thể được kiểm chứng lại ở nhiều milestone liên tiếp — "
+            "cột 'Tham chiếu' liệt kê đủ các milestone đó cùng mã DES (mục 2 "
+            "bên dưới) hiện thực nó, phục vụ đối chiếu qua lại theo yêu cầu "
+            "traceability của Appendix C, NASA Systems Engineering Handbook.")
     table(
         d,
-        ["REQ ID", "Tên yêu cầu", "Mô tả (What)", "Kiểm chứng", "Truy vết", "DES"],
-        [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in MILESTONE_REQS],
+        ["REQ ID", "Tên yêu cầu", "Mô tả (What)", "Tiêu chí nghiệm thu",
+         "Tham chiếu", "Ghi chú"],
+        FUNCTIONAL_REQS,
     )
 
     h1(d, "2. Thiết kế (DES) — trả lời How, viết sau khi đã thử-sai")
