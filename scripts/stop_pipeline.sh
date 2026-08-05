@@ -11,7 +11,13 @@
 # trừ tường minh script này cùng toàn bộ tiến trình cha của nó.
 set -u
 
-PATTERNS='px4|gz sim|gz gui|gzserver|ruby.*gz|robot_state_publisher|spawner|controller_manager|mavros|offboard_precland|aruco_fractal|box_state_manager|box_hardware|mavros_to_dib|landing_target_bridge|rtsp_publisher|ros_gz|parameter_bridge|rqt_image_view|m3_full_loop_monitor|box_gps_publisher|sitl_fixtures'
+# M5 hardening: 'spawner' trần khớp nhầm tiến trình desktop KHÔNG liên quan
+# (gvfsd-trash/-network/-dnssd chạy với cờ '--spawner ...' trên Ubuntu/GNOME
+# — phát hiện được khi viết scripts/go_no_go.sh dùng lại đúng pattern này).
+# Kịch bản thật là 'controller_manager/spawner' (binary tại
+# /opt/ros/humble/lib/controller_manager/spawner) nên siết pattern theo đúng
+# đường dẫn đó — vẫn khớp spawner thật, không còn khớp gvfsd.
+PATTERNS='px4|gz sim|gz gui|gzserver|ruby.*gz|robot_state_publisher|controller_manager/spawner|controller_manager|mavros|offboard_precland|aruco_fractal|box_state_manager|box_hardware|mavros_to_dib|landing_target_bridge|rtsp_publisher|ros_gz|parameter_bridge|rqt_image_view|m3_full_loop_monitor|box_gps_publisher|sitl_fixtures'
 
 # Chính script này + mọi tiến trình cha: tuyệt đối không đụng tới.
 SAFE=" "
