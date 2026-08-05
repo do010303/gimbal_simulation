@@ -24,19 +24,16 @@ aruco_build/*
 ros2_ws/src/box_simulation/meshes/dae/BOX PAD1.0_simple.dae
 ros2_ws/src/box_simulation/meshes/dae/base_link_1.dae
 
-# Keep local project documents private; publish only the approved files.
-docs/*
-# M3 deliverable: consolidated doc + its test harness (see docs/m3.md).
-!docs/m3.md
-!docs/m3_box_handshake_test/
-!docs/m3_box_handshake_test/*.py
-!docs/m3_box_handshake_test/*.md
-# Sơ đồ FSM/kiến trúc — README trỏ vào đây.
-!docs/diagrams/
-!docs/diagrams/*.png
-!docs/diagrams/*.jpg
-!docs/diagrams/*.dot
-!docs/diagrams/*.mmd
+# Tài liệu nội bộ đã lỗi thời — thay thế bởi m3.md/TEST_PLAN_RESULTS.md, giữ riêng.
+docs/DEBUG_PLAN.md
+docs/M2_PLAN.md
+
+# Tài liệu nguồn gốc của team (docx/xlsx nặng, nội bộ) — không ship qua git.
+# Các bản DIB_*.docx do repo này SINH RA (docs/tools/gen_docs.py) không nằm
+# trong danh sách này nên vẫn được ship bình thường.
+docs/Drone_In_A_Box_Design_Milestones(1)(1).docx
+docs/Tai_Lieu_Dac_Ta_KT_Milestone2_v3.docx
+docs/px4_precland_failsafe_parameters.xlsx
 
 # Python cache
 __pycache__/
