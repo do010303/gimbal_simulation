@@ -140,7 +140,13 @@ Giữ nguyên T1, T2.
 | 6 | `ros2 launch ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/sitl_fixtures.launch.py` | fixture GPS, **chỉ SITL** |
 | 7 | `ros2 run rqt_image_view rqt_image_view /landing/annotated_image` | HUD giám sát — mở suốt lượt chạy |
 
-**Kiểm 3 thứ trước khi bay** (10 giây bây giờ, tránh mất cả lượt bay):
+**Kiểm trước khi bay** (10 giây bây giờ, tránh mất cả lượt bay) — một lệnh
+làm cả 3 việc dưới, cộng môi trường build + tiến trình cũ còn sót
+(`docs/go_no_go.md`):
+```bash
+./scripts/go_no_go.sh
+```
+Tương đương chạy tay 3 lệnh sau, nếu muốn tự kiểm từng bước:
 ```bash
 ros2 param get /mavros/mavros_node use_sim_time             # True
 ros2 control list_controllers                               # 4 dòng 'active'
@@ -209,6 +215,10 @@ ros2 run rqt_image_view rqt_image_view /landing/annotated_image
 ```
 HUD giống hệt mục 2, chỉ khác dòng `BOX:` hiện `no telemetry` — đúng và bình
 thường khi không chạy phía box.
+
+**Kiểm trước khi bay:** `./scripts/go_no_go.sh` chạy được ở đây luôn — nó tự
+nhận ra không có `box_simulation` (không controller nào) và bỏ qua đúng mục
+đó thay vì báo lỗi, chỉ còn kiểm `use_sim_time` + MAVROS connected.
 
 **Bay** — giống mục 2, trong `pxh>` của T1:
 ```

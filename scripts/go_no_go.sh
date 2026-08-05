@@ -105,7 +105,12 @@ if [ "$PIPELINE_UP" -eq 1 ]; then
     CTRL=$(timeout 5 ros2 control list_controllers 2>/dev/null)
     N_CTRL=$(echo "$CTRL" | grep -c .)
     N_ACTIVE=$(echo "$CTRL" | awk '{print $NF}' | grep -xc 'active')
-    if [ "$N_CTRL" -eq 4 ] && [ "$N_ACTIVE" -eq 4 ]; then
+    if [ "$N_CTRL" -eq 0 ]; then
+        # README mục 3 ("hạ cánh KHÔNG có box") không spawn box_simulation nên
+        # không có controller nào — bình thường, KHÔNG phải lỗi. Chỉ mục 2
+        # (drone-in-a-box, có box) cần đúng 4/4 active.
+        echo -e "${GREEN}[OK] Không có controller nào (bình thường nếu đang chạy mục 3, không có box)${NC}"
+    elif [ "$N_CTRL" -eq 4 ] && [ "$N_ACTIVE" -eq 4 ]; then
         echo -e "${GREEN}[OK] ros2 control list_controllers: 4/4 active${NC}"
     else
         echo -e "${RED}[FAIL] Controller chưa đủ 4/4 active ($N_ACTIVE/$N_CTRL).${NC}"
