@@ -252,6 +252,16 @@ class BoxStateManager : public rclcpp::Node
         bool last_drone_connected_ = false;
         bool have_drone_telemetry_ = false;
 
+        // M5 hardening: drone_telemetry_callback had no freshness tracking at
+        // all -- unlike offboard_precland_controller's last_*_time_ pattern,
+        // a dead publisher (crashed node, dead bridge in split-domain) was
+        // silently indistinguishable from "nothing new to report" until the
+        // downstream securing_state_manager's own 5 s staleness timer fired.
+        // This is diagnostic only: a throttled WARN, checked in
+        // state_machine_timer_callback. Does not change FSM behavior.
+        rclcpp::Time last_drone_telemetry_time_;
+        static constexpr double DRONE_TELEMETRY_STALE_SEC = 5.0;
+
 };
 
 #endif

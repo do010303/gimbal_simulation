@@ -21,6 +21,7 @@
 // role; that role just does not cross the domain boundary.
 //
 // Domains come from args: dib_split_bridge <box_domain> <drone_domain>
+#include <chrono>
 #include <cstdlib>
 #include <rclcpp/rclcpp.hpp>
 #include "domain_bridge/domain_bridge.hpp"
@@ -71,8 +72,28 @@ int main(int argc, char ** argv)
       box_domain, drone_domain, drone_domain, box_domain, drone_domain, box_domain,
       box_domain, drone_domain);
 
+  // M5 hardening: this bridge has no per-message logging at all (same as
+  // DDS-Router 2.2.0 -- confirmed silent even with -d during M4 testing), so
+  // a dead bridge process and a healthy-but-quiet one look identical from the
+  // outside. A periodic heartbeat turns "did the operator notice the cable
+  // got pulled" into "is the last heartbeat line recent" -- the exact gap hit
+  // during M4's mid-flight bridge-kill scenario, where box_state_manager sat
+  // silently kẹt for 30 s before its own timeout finally explained why.
+  auto heartbeat_node = std::make_shared<rclcpp::Node>("dib_split_bridge_heartbeat");
+  const auto start_time = std::chrono::steady_clock::now();
+  auto heartbeat_timer = heartbeat_node->create_wall_timer(
+      std::chrono::seconds(10),
+      [heartbeat_node, start_time, box_domain, drone_domain]() {
+        const auto uptime_sec = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - start_time).count();
+        RCLCPP_INFO(heartbeat_node->get_logger(),
+            "dib_split_bridge alive, uptime=%llds, bridging domain %zu<->%zu",
+            static_cast<long long>(uptime_sec), box_domain, drone_domain);
+      });
+
   rclcpp::executors::SingleThreadedExecutor executor;
   bridge.add_to_executor(executor);
+  executor.add_node(heartbeat_node);
   executor.spin();
   rclcpp::shutdown();
   return 0;

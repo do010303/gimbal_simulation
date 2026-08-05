@@ -153,6 +153,7 @@ void BoxStateManager::drone_telemetry_callback(const dib_msgs::msg::DroneTelemet
         this->last_drone_connected_ = msg->state.connected;
         this->have_drone_telemetry_ = true;
     }
+    this->last_drone_telemetry_time_ = this->now();
     drone_telemetry_msg_ = *msg;
 
     // this->box_state_ = checkNewState((BoxState)msg->box_state);
@@ -399,6 +400,24 @@ void BoxStateManager::box_telemetry_timer_callback()
 
 void BoxStateManager::state_machine_timer_callback()
 {
+    // M5 hardening: diagnostic-only staleness check, does not affect the
+    // state machine below. Scoped to WAITING_FOR_LANDING only: that is the
+    // one state where the box is actively expecting a drone to be sending
+    // fresh telemetry, so staleness there is unambiguous evidence of a
+    // problem (drone node dead, or bridge down in split-domain -- exactly
+    // the M4 mid-flight bridge-kill scenario). Deliberately NOT checked in
+    // SECURING_DRONE/POWER_OFF: staleness there is the intended trigger for
+    // the CHARGING transition (securing_state_manager.cpp), not a fault.
+    if (this->have_drone_telemetry_ && this->box_state_ == BoxState::WAITING_FOR_LANDING) {
+        const double age = (this->now() - this->last_drone_telemetry_time_).seconds();
+        if (age > DRONE_TELEMETRY_STALE_SEC) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                "drone_telemetry stale: %.1fs since last message (threshold %.1fs) while "
+                "WAITING_FOR_LANDING -- drone node dead, or bridge down in split-domain",
+                age, DRONE_TELEMETRY_STALE_SEC);
+        }
+    }
+
     // Check the current state and run the state machine
     BoxState new_box_state = checkNewState(this->box_state_);
     runStateMachine(new_box_state);
