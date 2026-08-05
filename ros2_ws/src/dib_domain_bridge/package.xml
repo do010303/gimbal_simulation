@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>dib_domain_bridge</name>
+  <version>0.1.0</version>
+  <description>Fallback split-domain bridge (3 contract topics) for drone-in-a-box M4. The default bridge is DDS-Router; see README.md.</description>
+  <maintainer email="winner132003@gmail.com">ducanh</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>domain_bridge</depend>
+  <depend>dib_msgs</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
