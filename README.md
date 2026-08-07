@@ -183,7 +183,54 @@ python3 ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/m3_full_
 > phải, cách đọc HUD, latency vs lệch đồng hồ, cách đọc sai số hạ cánh — tất cả
 > ở **`ros2_ws/src/precision_landing/README.md`**. Ba cấu hình hay gõ sai
 > (`box_id`, GPS box, `marker_size`): Phụ lục A.7. Đổi hướng đậu của drone:
-> Phụ lục A.8. Chạy tách domain box↔drone (tuỳ chọn): Phụ lục A.10.
+> Phụ lục A.8. Chạy tách domain box↔drone (tuỳ chọn): mục 2.3.
+
+### 2.3. Biến thể: tách domain (split-domain, DDS-Router 2.2.x)
+
+Cùng một pipeline ở 2.1–2.2, nhưng box và drone chạy trên hai `ROS_DOMAIN_ID`
+tách biệt thay vì chung một domain — diễn tập cho việc tách box và drone
+thành hai máy vật lý thật qua LAN sau này. Chỉ đúng 3 giao diện hợp đồng + 1
+fixture SITL đi qua cầu, mọi thứ khác (Gazebo, MAVROS, tracker, ros2_control
+của box...) vẫn cục bộ một bên; chi tiết bề mặt cầu + các bẫy kỹ thuật: Phụ
+lục A.10.
+
+**Một lần** — build DDS-Router 2.2.0 (không có gói apt, ~4 phút, recipe đã
+vendor sẵn trong repo để khoá đúng version đã kiểm):
+```bash
+mkdir -p ~/DDS-Router-2.2/src && cd ~/DDS-Router-2.2
+cp ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_2.2.0.repos ddsrouter.repos
+vcs import src < ddsrouter.repos
+source /opt/ros/humble/setup.bash && colcon build
+```
+
+**Chạy**: giống hệt 2.1 + 2.2 (T1, T2, T3, T4, T6, T7 không đổi lệnh), chỉ
+khác:
+- Header mọi terminal thêm `export ROS_LOCALHOST_ONLY=1`, rồi thêm domain:
+  **terminal phía box** (T1, T2, T5, T6) `export ROS_DOMAIN_ID=42`;
+  **terminal phía drone** (T3, T4) `export ROS_DOMAIN_ID=0`.
+- T5 đổi lệnh thành
+  `ros2 launch precision_landing dib_bringup.launch.py include_telemetry_bridge:=false`
+  (`mavros_to_dib_telemetry` đọc MAVROS nên phải chạy riêng bên domain drone
+  — xem T5b dưới, vì `ROS_DOMAIN_ID` là per-process).
+- Thêm 2 terminal:
+
+| T | Domain | Lệnh |
+|---|---|---|
+| 5b | 0 (drone) | `ros2 run precision_landing mavros_to_dib_telemetry --ros-args -p drone_id:=1` |
+| 7 (cầu) | — (không export domain nào) | `cd ~/DDS-Router-2.2 && source install/setup.bash`<br>`./install/ddsrouter_tool/bin/ddsrouter -c ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml` |
+
+Bay giống hệt bước **Bay** ở 2.2. `./scripts/go_no_go.sh` chạy được ở từng
+domain nhưng chỉ thấy đúng phần của domain đó (topic domain kia vô hình) —
+dùng checklist mắt người mục 6 trong `docs/go_no_go.md` để kiểm riêng cầu:
+cầu (T7) in heartbeat mỗi 10 giây, không thấy dòng mới trong >10s là cầu chết.
+
+Run-sheet 7 terminal đầy đủ (kèm 2 bài kiểm cô lập/nhân quả trước khi bật cả
+pipeline): `docs/m4_split_domain_test/README.md`. Test nhanh riêng cầu
+**không cần Gazebo** (3 terminal, ~20 giây): `docs/m4_split_domain_test/tier1/README.md`.
+
+> Ba điều hay đốt vài giờ nếu tự sửa cấu hình cầu, cách dùng cầu dự phòng
+> (`dib_domain_bridge`), và vì sao `ros2 topic echo` hay treo khi soi topic
+> cross-domain: Phụ lục A.10.
 
 ---
 
@@ -587,28 +634,7 @@ phải báo bằng topic. **Thiếu nó ở split-domain thì box kẹt ở `SEC
 không bao giờ tới `CHARGING`** (box chỉ đi tiếp khi `d1/telemetry` im quá 5 s).
 Trên máy thật thì bỏ dòng này khỏi cấu hình cầu.
 
-Cầu mặc định là **DDS-Router 2.2.0**. Build một lần (~4 phút, **không có gói
-apt**), recipe đã vendor trong repo để khoá đúng version đã kiểm:
-```bash
-mkdir -p ~/DDS-Router-2.2/src && cd ~/DDS-Router-2.2
-cp ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_2.2.0.repos ddsrouter.repos
-vcs import src < ddsrouter.repos
-source /opt/ros/humble/setup.bash && colcon build
-```
-
-Chạy: khác mục 2 ở 3 điểm — terminal box thêm `export ROS_DOMAIN_ID=42`,
-terminal drone `export ROS_DOMAIN_ID=0`; T5 thêm
-`include_telemetry_bridge:=false` (`mavros_to_dib_telemetry` đọc MAVROS nên
-thuộc phía drone, phải chạy riêng bên domain drone — `ROS_DOMAIN_ID` là
-per-process); và thêm một terminal cầu (**không** export domain nào):
-```bash
-cd ~/DDS-Router-2.2 && source install/setup.bash
-./install/ddsrouter_tool/bin/ddsrouter -c \
-  ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml
-```
-Run-sheet 7 terminal đầy đủ + kiểm cô lập/nhân quả:
-`docs/m4_split_domain_test/README.md`. Kiểm nhanh cầu **không cần Gazebo**
-(3 terminal, ~20 s): `docs/m4_split_domain_test/tier1/README.md`.
+Cầu mặc định là **DDS-Router 2.2.0**. Cách build + chạy đầy đủ: mục 2.3.
 
 **Ba điều phải biết trước khi sửa cấu hình cầu** (mỗi cái từng đốt vài giờ):
 
@@ -640,7 +666,7 @@ trò operator/server, chỉ là không đi qua ranh giới domain.
 
 > **Cầu dự phòng:** `dib_domain_bridge` (dùng `domain_bridge`, cài bằng apt
 > trong vài giây thay vì build 4 phút, và bắc cầu được cả service nếu hợp đồng
-> sau này cần lại). Thay terminal cầu ở trên bằng:
+> sau này cần lại). Thay terminal cầu (T7) ở mục 2.3 bằng:
 > ```bash
 > sudo apt install -y ros-humble-domain-bridge      # một lần
 > cd ros2_ws && colcon build --packages-select dib_domain_bridge
