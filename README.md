@@ -192,7 +192,8 @@ tách biệt thay vì chung một domain — diễn tập cho việc tách box v
 thành hai máy vật lý thật qua LAN sau này. Chỉ đúng 3 giao diện hợp đồng + 1
 fixture SITL đi qua cầu, mọi thứ khác (Gazebo, MAVROS, tracker, ros2_control
 của box...) vẫn cục bộ một bên; chi tiết bề mặt cầu + các bẫy kỹ thuật: Phụ
-lục A.10.
+lục A.10. Đây là biến thể độc lập của mục 2 — không cần đọc lại 2.1/2.2, mọi
+terminal dưới đây đã ghi đủ lệnh.
 
 **Một lần** — build DDS-Router 2.2.0 (không có gói apt, ~4 phút, recipe đã
 vendor sẵn trong repo để khoá đúng version đã kiểm):
@@ -203,34 +204,174 @@ vcs import src < ddsrouter.repos
 source /opt/ros/humble/setup.bash && colcon build
 ```
 
-**Chạy**: giống hệt 2.1 + 2.2 (T1, T2, T3, T4, T6, T7 không đổi lệnh), chỉ
-khác:
-- Header mọi terminal thêm `export ROS_LOCALHOST_ONLY=1`, rồi thêm domain:
-  **terminal phía box** (T1, T2, T5, T6) `export ROS_DOMAIN_ID=42`;
-  **terminal phía drone** (T3, T4) `export ROS_DOMAIN_ID=0`.
-- T5 đổi lệnh thành
-  `ros2 launch precision_landing dib_bringup.launch.py include_telemetry_bridge:=false`
-  (`mavros_to_dib_telemetry` đọc MAVROS nên phải chạy riêng bên domain drone
-  — xem T5b dưới, vì `ROS_DOMAIN_ID` là per-process).
-- Thêm 2 terminal:
+#### Giai đoạn A (split-domain) — dựng world, kiểm box/marker (2 terminal)
 
-| T | Domain | Lệnh |
-|---|---|---|
-| 5b | 0 (drone) | `ros2 run precision_landing mavros_to_dib_telemetry --ros-args -p drone_id:=1` |
-| 7 (cầu) | — (không export domain nào) | `cd ~/DDS-Router-2.2 && source install/setup.bash`<br>`./install/ddsrouter_tool/bin/ddsrouter -c ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml` |
+Chạy riêng trước phần còn lại, giống lý do ở 2.1: nếu marker không hiện thì
+cả pipeline chắc chắn thất bại.
 
-Bay giống hệt bước **Bay** ở 2.2. `./scripts/go_no_go.sh` chạy được ở từng
-domain nhưng chỉ thấy đúng phần của domain đó (topic domain kia vô hình) —
-dùng checklist mắt người mục 6 trong `docs/go_no_go.md` để kiểm riêng cầu:
-cầu (T7) in heartbeat mỗi 10 giây, không thấy dòng mới trong >10s là cầu chết.
+```bash
+# T1 — PX4 + Gazebo (domain box)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=42
+export GZ_SIM_RESOURCE_PATH=$HOME/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/box_simulation/share
+cd ~/PX4 && PX4_GZ_NO_FOLLOW=1 make px4_sitl gz_x500_gimbal_fractal_aruco_landing
+# đợi tới pxh> rồi mới sang T2. Không màn hình: thêm HEADLESS=1 (xem Phụ lục A.5)
+```
 
-Run-sheet 7 terminal đầy đủ (kèm 2 bài kiểm cô lập/nhân quả trước khi bật cả
-pipeline): `docs/m4_split_domain_test/README.md`. Test nhanh riêng cầu
-**không cần Gazebo** (3 terminal, ~20 giây): `docs/m4_split_domain_test/tier1/README.md`.
+```bash
+# T2 — spawn box + marker vào chính world đó (domain box, chờ ~40s cho 4 controller nạp xong)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=42
+ros2 launch box_simulation box_spawn_only.launch.py
+```
 
-> Ba điều hay đốt vài giờ nếu tự sửa cấu hình cầu, cách dùng cầu dự phòng
-> (`dib_domain_bridge`), và vì sao `ros2 topic echo` hay treo khi soi topic
-> cross-domain: Phụ lục A.10.
+Kiểm (mở thêm một terminal domain box, hoặc chạy trong T2 sau khi launch —
+cùng 3 lệnh với 2.1):
+```bash
+export ROS_LOCALHOST_ONLY=1 && export ROS_DOMAIN_ID=42
+gz model --list                       # có Box và dib_box_marker
+ros2 control list_controllers         # 4 dòng, tất cả 'active'
+ros2 topic echo --once /joint_states  # 6 joint
+```
+Controller còn `unconfigured`, mở nắp xác nhận marker: giống hệt 2.1 (Phụ
+lục A.5), chỉ thêm hai dòng `export ROS_LOCALHOST_ONLY=1`/`ROS_DOMAIN_ID=42`
+ở đầu terminal đó.
+
+#### Giai đoạn B (split-domain) — vòng kín (thêm 5 terminal + 1 cầu)
+
+Giữ nguyên T1, T2.
+
+```bash
+# T3 — bridge camera + tracker + controller (domain drone)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=0
+ros2 launch precision_landing sitl_precland.launch.py
+```
+
+```bash
+# T4 — MAVROS (domain drone, đồng hồ mô phỏng — bắt buộc launch này, xem Phụ lục A.6)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=0
+ros2 launch precision_landing sitl_mavros.launch.py
+```
+
+```bash
+# T5 — 3 node phía box (domain box; include_telemetry_bridge:=false vì
+# mavros_to_dib_telemetry đọc MAVROS nên phải chạy riêng bên domain drone — T5b)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=42
+ros2 launch precision_landing dib_bringup.launch.py include_telemetry_bridge:=false
+```
+
+```bash
+# T5b — telemetry drone->box (domain drone, ROS_DOMAIN_ID per-process nên tách riêng khỏi T5)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=0
+ros2 run precision_landing mavros_to_dib_telemetry --ros-args -p drone_id:=1
+```
+
+```bash
+# T6 — fixture GPS, chỉ SITL (domain box)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=42
+ros2 launch ~/PX4/examples/SITL_PrecisionLanding/docs/m3_box_handshake_test/sitl_fixtures.launch.py
+```
+
+```bash
+# T7 — cầu DDS-Router (KHÔNG export ROS_DOMAIN_ID nào — cầu lấy domain từ config)
+source /opt/ros/humble/setup.bash
+cd ~/DDS-Router-2.2 && source install/setup.bash
+./install/ddsrouter_tool/bin/ddsrouter -c \
+  ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/src/precision_landing/config/dds_router_split.yaml
+```
+Cầu dự phòng thay cho T7 (dùng khi máy chưa build được DDS-Router):
+```bash
+sudo apt install -y ros-humble-domain-bridge      # một lần
+cd ~/PX4/examples/SITL_PrecisionLanding/ros2_ws && colcon build --packages-select dib_domain_bridge
+source install/setup.bash
+ros2 run dib_domain_bridge dib_split_bridge 42 0  # arg1=box domain, arg2=drone domain
+```
+
+```bash
+# HUD giám sát (tuỳ chọn, domain drone — topic /landing/annotated_image do tracker/controller publish)
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=0
+ros2 run rqt_image_view rqt_image_view /landing/annotated_image
+```
+
+**Kiểm trước khi bay**: `./scripts/go_no_go.sh` chạy được ở từng domain
+nhưng chỉ thấy đúng phần của domain đó chạy trong terminal gọi nó (topic
+domain kia vô hình từ đây) — chạy nó trong một terminal domain drone (T3/T4)
+để kiểm `use_sim_time`/MAVROS, và tự kiểm riêng cầu bằng checklist mắt người
+mục 6 trong `docs/go_no_go.md`: cầu (T7) in heartbeat mỗi 10 giây, không thấy
+dòng mới trong >10s là cầu chết.
+
+**Bay**, trong `pxh>` của Terminal 1 (không đổi so với 2.2):
+```
+pxh> param set NAV_DLL_ACT 0      # bắt buộc nếu không mở QGroundControl — Phụ lục A.6
+pxh> commander takeoff
+pxh> commander land
+```
+FSM đứng ở `IDLE` khi chưa bay là **đúng**. Sau bay, `WAIT_BOX_READY → START →
+HORIZONTAL_APPROACH → DESCEND_ABOVE_TARGET → FINAL_APPROACH`, chạm đất, rồi
+**còn ~35–40 giây nữa** box mới kẹp xong / đóng nắp / sang `CHARGING` — đừng
+Ctrl+C sớm.
+
+**Lượt chạy đạt** = FSM hai bên đan xen đúng nhân quả, kết thúc ở `CHARGING`
+(cùng chuỗi log với 2.2 — box và drone chỉ khác ở chỗ đi qua cầu):
+```
+DRONE  -> GOTO_BOX -> PRELANDING_CHECK -> WAIT_BOX_READY
+BOX    -> PREPARING_FOR_LANDING(6) -> WAITING_FOR_LANDING(7)  (via bridged b2/telemetry)
+DRONE  -> START -> HORIZONTAL_APPROACH -> DESCEND_ABOVE_TARGET -> FINAL_APPROACH
+MAVROS -> landed_state=ON_GROUND
+BOX    -> SECURING_DRONE(8) -> CHARGING(9)  (via bridged b2/telemetry)
+```
+
+Chấm điểm tự động cả lượt bay (tuỳ chọn, thêm một terminal domain drone —
+**không dùng `m3_full_loop_monitor.py`**: nó subscribe `/box/state` trực
+tiếp, không nằm trong 3 giao diện được bắc cầu nên phía drone không bao giờ
+thấy nó; bản split-domain-aware đọc `box_state` từ field lồng sẵn trong
+`b2/telemetry` đã bắc cầu):
+```bash
+source /opt/ros/humble/setup.bash
+source ~/gz_ros2_control_ws/install/setup.bash
+source ~/PX4/examples/SITL_PrecisionLanding/ros2_ws/install/setup.bash
+export ROS_LOCALHOST_ONLY=1
+export ROS_DOMAIN_ID=0
+python3 ~/PX4/examples/SITL_PrecisionLanding/docs/m4_split_domain_test/m4_full_loop_monitor.py
+```
+
+Run-sheet gốc (kèm 2 bài kiểm cô lập/nhân quả trước khi bật cả pipeline, và
+giải thích từng dòng ở trên): `docs/m4_split_domain_test/README.md`. Test
+nhanh riêng cầu **không cần Gazebo** (3 terminal, ~20 giây):
+`docs/m4_split_domain_test/tier1/README.md`.
+
+> Ba điều hay đốt vài giờ nếu tự sửa cấu hình cầu, và vì sao `ros2 topic
+> echo` hay treo khi soi topic cross-domain: Phụ lục A.10.
 
 ---
 
@@ -666,13 +807,8 @@ trò operator/server, chỉ là không đi qua ranh giới domain.
 
 > **Cầu dự phòng:** `dib_domain_bridge` (dùng `domain_bridge`, cài bằng apt
 > trong vài giây thay vì build 4 phút, và bắc cầu được cả service nếu hợp đồng
-> sau này cần lại). Thay terminal cầu (T7) ở mục 2.3 bằng:
-> ```bash
-> sudo apt install -y ros-humble-domain-bridge      # một lần
-> cd ros2_ws && colcon build --packages-select dib_domain_bridge
-> ros2 run dib_domain_bridge dib_split_bridge 42 0  # arg1=box domain, arg2=drone domain
-> ```
-> Chi tiết: `ros2_ws/src/dib_domain_bridge/README.md`.
+> sau này cần lại) — lệnh thay T7 đã có sẵn ở mục 2.3. Chi tiết:
+> `ros2_ws/src/dib_domain_bridge/README.md`.
 
 > **Chẩn đoán:** `ros2 topic echo/list/info` hay treo hoặc ném
 > `xmlrpc.client.Fault: !rclpy.ok()` khi soi topic cross-domain — đó là lớp
