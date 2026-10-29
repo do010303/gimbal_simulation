@@ -48,24 +48,17 @@ from launch_ros.actions import Node
 import xacro
 
 # --- Spawn pose -------------------------------------------------------------
-# Derived from box.xacro's collision geometry, not guessed. The model is built
-# in a rotated frame, so the spawn applies roll = pi/2, which maps
-# model (x, y, z) -> world (x, -z, y).
-#
-#   base_collision      model (0, -0.46647, 0.58282) size (1.04977, 0.63172, 1.13211)
-#     -> world z spans -0.78233 .. -0.15061
-#   base_collision.000  model (-0.0157, 0.63546, -1.38812) size (0.72424, 2.80801, 0.36035)
-#     (the GPS mast) -> world z spans -0.76854 .. 2.03947
-#
-# Lowest point is -0.78233, so that is the lift needed to stand on the ground.
-# box.launch.py uses 1.0, which leaves the box floating ~0.22 m.
-SPAWN_ROLL = 1.5708
-SPAWN_Z = 0.78233
+# Box v2 (2026-10 CAD) is modelled Z-up with its origin on the ground under the
+# centre of the body, so it spawns upright at ground level: roll = 0, z = 0.
+# (The old box was modelled Y-up and needed roll = pi/2, z = 0.78233.)
+SPAWN_ROLL = 0.0
+SPAWN_Z = 0.0
 
-# Anywhere except the PX4 spawn origin, and close enough to be in Gazebo's
-# default camera view on startup (3.20 m from origin).
-SPAWN_X = 2.5
-SPAWN_Y = -2.0
+# Placed so the landing-surface centre lands exactly where the old box's
+# marker was (2.5129, -2.5896): PAD_EAST/PAD_NORTH in box_gps_publisher.py and
+# measure_altitude_datum.py stay valid. 3.6 m from the PX4 spawn origin.
+SPAWN_X = 2.5129
+SPAWN_Y = -2.5896
 
 # --- Marker pose ------------------------------------------------------------
 # The marker is spawned as its OWN SDF model (dib_box_marker) rather than being
@@ -76,12 +69,11 @@ SPAWN_Y = -2.0
 # anyway.
 #
 # Position is DERIVED from the box spawn above so the two cannot drift apart.
-# The marker sits at model (0.0129, -0.1456, 0.5896) -- the centre of the
-# landing surface, plus 5 mm along model y to clear the mesh. Applying the same
-# roll = pi/2 mapping model (x, y, z) -> world (x, -z, y):
-MARKER_X = SPAWN_X + 0.0129     # 2.5129
-MARKER_Y = SPAWN_Y - 0.5896     # -2.5896
-MARKER_Z = SPAWN_Z - 0.1456     # 0.63673
+# The marker sits at model (0, 0, 0.726) -- the centre of the top plate
+# (box.xacro: top face at z = 0.721), plus 5 mm to clear the mesh.
+MARKER_X = SPAWN_X              # 2.5129
+MARKER_Y = SPAWN_Y              # -2.5896
+MARKER_Z = SPAWN_Z + 0.726      # 0.726
 # The model's plane normal is already +z, i.e. facing up at the descending
 # drone. Keep these three numbers in sync with PAD_EAST/PAD_NORTH in
 # docs/m3_box_handshake_test/box_gps_publisher.py.
@@ -101,7 +93,7 @@ MARKER_Z = SPAWN_Z - 0.1456     # 0.63673
 # frame change (the box respawns in seconds; PX4 does not need restarting):
 #     ros2 launch box_simulation box_spawn_only.launch.py marker_yaw:=0.0
 # If you ever re-derive it, judge by the CLAMPS, not the lid colour: they close
-# along world Y (0.774 m apart) and world X (0.782 m apart), so the drone body
+# along world Y (0.43 m apart) and world X (0.475 m apart), so the drone body
 # must line up with those axes. Picking by eye off the lid can still leave you
 # 90 degrees out.
 MARKER_YAW = 1.5708

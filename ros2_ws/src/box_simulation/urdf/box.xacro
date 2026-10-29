@@ -4,68 +4,92 @@
   <xacro:arg name="name_space" default="robot1"/>
   <xacro:property name="name_space" value="$(arg name_space)"/>
 
+  <!-- Box v2 (2026-10 CAD: THAN / CANHTRAI / CANHPHAI). Meshes and every
+       number below come from scripts/make_box_meshes.py; re-run it and copy
+       its output here if the CAD changes.
+
+       Model frame: Z UP, origin on the ground under the centre of the body,
+       metres. (The old box was modelled Y-up and spawned with roll = pi/2;
+       this one spawns with roll = 0.) The landing surface (top plate) is at
+       z = 0.721, centred on x = y = 0.
+
+       Joint names, ranges and directions are unchanged, so
+       box_hardware_adapter / box_manager need no change:
+         lid_*_joint   0 (closed) .. 1.57 (open), lids swing OUTWARD about Y
+         clamp_*_joint 0 (open) .. 0.2 (closed), bars move INWARD -->
   <joint name="clamp_h_1_joint" type="prismatic">
     <parent link="base_link"/>
     <child link="clamp_h_1_link"/>
-    <axis xyz="0.00000 0.00000 -1.00000"/>
+    <axis xyz="0.00000 1.00000 0.00000"/>
     <limit effort="1000.0" lower="0" upper="0.2" velocity="2.0"/>
-    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.01390 -0.13998 0.97687"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.00045 -0.45213 0.75646"/>
   </joint>
   <joint name="clamp_h_2_joint" type="prismatic">
     <mimic joint="clamp_h_1_joint"/>
     <parent link="base_link"/>
     <child link="clamp_h_2_link"/>
-    <axis xyz="0.00000 0.00000 1.00000"/>
+    <axis xyz="0.00000 -1.00000 0.00000"/>
     <limit effort="1000.0" lower="0" upper="0.2" velocity="2.0"/>
-    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.01390 -0.13998 0.20239"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.00045 0.47188 0.73446"/>
   </joint>
   <joint name="clamp_v_1_joint" type="prismatic">
     <parent link="base_link"/>
     <child link="clamp_v_1_link"/>
     <axis xyz="1.00000 0.00000 0.00000"/>
     <limit effort="100.0" lower="0" upper="0.2" velocity="2.0"/>
-    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.37827 -0.15098 0.57782"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.48072 -0.00040 0.72921"/>
   </joint>
   <joint name="clamp_v_2_joint" type="prismatic">
-    <mimic joint="clamp_v_1_joint"/>                    
+    <mimic joint="clamp_v_1_joint"/>
     <parent link="base_link"/>
     <child link="clamp_v_2_link"/>
     <axis xyz="-1.00000 0.00000 0.00000"/>
     <limit effort="100.0" lower="0" upper="0.2" velocity="2.0"/>
-    <origin rpy="0.00000 0.00000 0.00000" xyz="0.40400 -0.15098 0.57452"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.48162 -0.00040 0.72921"/>
   </joint>
+  <!-- GPS antenna puck on the back edge of the body (part of base.stl) -->
   <joint name="gps_joint" type="fixed">
     <parent link="base_link"/>
     <child link="gps_link"/>
-    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.21299 1.94386 -1.33887"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.60900 0.67100"/>
   </joint>
+  <!-- Hinges on the brackets at the bottom of the body side walls. ASSUMED:
+       the CAD export has no assembly placement, see make_box_meshes.py. -->
   <joint name="lid_left_joint" type="revolute">
     <parent link="base_link"/>
     <child link="lid_left_link"/>
-    <axis xyz="0.00000 0.00000 -1.00000"/>
+    <axis xyz="0.00000 -1.00000 0.00000"/>
     <limit effort="100000.0" lower="0" upper="1.57" velocity="1.00000"/>
-    <origin rpy="0.00000 0.00000 0" xyz="0.55819 -0.51697 0.58105"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="-0.53000 0.00000 0.25300"/>
   </joint>
   <joint name="lid_right_joint" type="revolute">
-    <mimic joint="lid_left_joint"/> 
+    <mimic joint="lid_left_joint"/>
     <parent link="base_link"/>
     <child link="lid_right_link"/>
-    <axis xyz="0.00000 0.00000 1.00000"/>
+    <axis xyz="0.00000 1.00000 0.00000"/>
     <limit effort="100000.00" lower="0" upper="1.57" velocity="1.00000"/>
-    <origin rpy="0.00000 0.00000 0" xyz="-0.56418 -0.51697 0.58105"/>
+    <origin rpy="0.00000 0.00000 0.00000" xyz="0.53000 0.00000 0.25300"/>
   </joint>
   <link name="base_link">
-    <origin rpy="0 0.00000 0.00000" xyz="0 0 0"/>
+    <!-- legs + bottom frame -->
     <collision name="base_collision">
-      <origin xyz="0.00000 -0.46647 0.58282" rpy="-0.00000 0.00 -0.00000"/>
+      <origin xyz="0.00000 -0.03450 0.11500" rpy="0 0 0"/>
       <geometry>
-          <box size="1.04977 0.63172 1.13211"/>
+        <box size="0.94700 1.03900 0.23000"/>
       </geometry>
     </collision>
+    <!-- body -->
     <collision name="base_collision.000">
-      <origin xyz="-0.01570 0.63546 -1.38812" rpy="-0.00000 0.00000 0.00000"/>
+      <origin xyz="0.00000 -0.00700 0.44750" rpy="0 0 0"/>
       <geometry>
-          <box size="0.72424 2.80801 0.36035"/>
+        <box size="1.00000 0.98600 0.43500"/>
+      </geometry>
+    </collision>
+    <!-- top plate = landing surface, top face at z = 0.721 -->
+    <collision name="base_collision.001">
+      <origin xyz="0.00000 0.00000 0.69300" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.95000 0.97000 0.05600"/>
       </geometry>
       <surface>
         <contact/>
@@ -73,152 +97,109 @@
     </collision>
     <inertial>
       <inertia ixx="5" ixy="0" ixz="0" iyy="5" iyz="0" izz="5"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00725 -0.09552 0.12968"/>
+      <origin rpy="0 0 0" xyz="0 0 0.35"/>
       <mass value="20.00000"/>
     </inertial>
     <visual>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/base.stl"/>
       </geometry>
     </visual>
   </link>
   <link name="clamp_h_1_link">
     <collision name="clamp_h_1_collision">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.20780 -0.00077 0.01984"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <box size="0.69164 0.01761 0.03000"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_1_collision.000">
-      <origin rpy="0.00292 0.00002 -0.00605" xyz="-0.12625 -0.00077 -0.02087"/>
-      <geometry>
-        <box size="0.03000 0.01761 0.10710"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_1_collision.000.001">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.35312 -0.00077 -0.09766"/>
-      <geometry>
-        <box size="0.34019 0.01761 0.03000"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_1_collision.000.001.002">
-      <origin rpy="-0.00000 -0.55460 0.00000" xyz="-0.15378 -0.00077 -0.08179"/>
-      <geometry>
-        <box size="0.08315 0.01761 0.03000"/>
+        <box size="0.28200 0.09200 0.07050"/>
       </geometry>
     </collision>
     <inertial>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
       <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="0.50000"/>
     </inertial>
     <visual>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.002.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/clamp_h_1.stl"/>
       </geometry>
     </visual>
   </link>
   <link name="clamp_h_2_link">
     <collision name="clamp_h_2_collision">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.20681 -0.00077 -0.01990"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <box size="0.69923 0.01761 0.03"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_2_collision.000">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.34567 -0.00077 0.09961"/>
-      <geometry>
-        <box size="0.31117 0.01761 0.03"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_2_collision.000.001">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="-0.12996 -0.00077 0.01855"/>
-      <geometry>
-        <box size="0.03 0.01761 0.10126"/>
-      </geometry>
-    </collision>
-    <collision name="clamp_h_2_collision.000.001.002">
-      <origin rpy="-0.00000 0.55460 0.00000" xyz="-0.15741 -0.00077 0.08258"/>
-      <geometry>
-        <box size="0.08223 0.01761 0.03"/>
+        <box size="0.28200 0.09519 0.02650"/>
       </geometry>
     </collision>
     <inertial>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="0.50000"/>
     </inertial>
     <visual>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0.00000 0.00000 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.004.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/clamp_h_2.stl"/>
       </geometry>
     </visual>
   </link>
   <link name="clamp_v_1_link">
     <collision name="clamp_v_1_collision">
-      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00079 -0.00109 0.00183"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <box size="0.03586 0.01435 1.08057"/>
+        <box size="0.08800 0.70000 0.01600"/>
       </geometry>
     </collision>
     <inertial>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="0.50000"/>
     </inertial>
     <visual>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.006.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/clamp_v_1.stl"/>
       </geometry>
     </visual>
   </link>
   <link name="clamp_v_2_link">
     <collision name="clamp_v_2_collision">
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.07289 0.00244 0.00360"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <box size="0.03787 0.01538 1.07532"/>
+        <box size="0.08800 0.70000 0.01600"/>
       </geometry>
     </collision>
     <inertial>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0.00" izz="0.001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="0.50000"/>
     </inertial>
     <visual>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.00001 0.00000 -0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.005.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/clamp_v_2.stl"/>
       </geometry>
     </visual>
   </link>
   <link name="gps_link">
-    <visual>
-      <origin rpy="-0.00000 0.00000 0.00000" xyz="0.00000 -0.00000 0.00012"/>
-      <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.007.dae" scale="0.00100 0.00100 0.00100"/>
-      </geometry>
-    </visual>
     <inertial>
       <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0 0 0"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="0.0100"/>
     </inertial>
   </link>
   <link name="lid_left_link">
-    
     <inertial>
-      <inertia ixx="0.001" ixy="0.0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="-0.0 0.0 0.00000"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="1.00000"/>
     </inertial>
     <visual>
-      <origin rpy="-0.00000 -0.00000 0.00000" xyz="0.00000 0.00000 -0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.001.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/lid_left.stl"/>
       </geometry>
       <material name="Gazebo/Orange"/>
     </visual>
@@ -226,13 +207,13 @@
   <link name="lid_right_link">
     <inertial>
       <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
-      <origin rpy="0.00000 0.00000 0.00000" xyz="0.0 0.0 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <mass value="1.00000"/>
     </inertial>
     <visual>
-      <origin rpy="-0.00000 -0.00000 -0.00000" xyz="-0.00000 0.00000 0.00000"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="package://box_simulation/meshes/dae/BOX PAD1.0_simple.003.dae" scale="0.00100 0.00100 0.00100"/>
+        <mesh filename="package://box_simulation/meshes/stl/lid_right.stl"/>
       </geometry>
       <material name="Gazebo/Blue"/>
     </visual>

@@ -70,8 +70,8 @@ def generate_launch_description():
     spawn_entity = Node(package='gazebo_ros', executable='spawn_entity.py',
                         arguments=['-topic', '/robot1/robot_description',
                                    '-entity', 'Box1',
-                                   '-x', '3.0', '-y', '2.0', '-z', '1.0',
-                                   '-R', '1.57', '-P', '0.0', '-Y', '0',
+                                   '-x', '3.0', '-y', '2.0', '-z', '0.0',
+                                   '-R', '0.0', '-P', '0.0', '-Y', '0',
                                    ],
                         output='screen',
                         name='spawn_entity',)
@@ -79,8 +79,8 @@ def generate_launch_description():
     spawn_entity2 = Node(package='gazebo_ros', executable='spawn_entity.py',
                         arguments=['-topic', '/robot2/robot_description',
                                    '-entity', 'Box2',
-                                   '-x', '0.0', '-y', '0.0', '-z', '1.0',
-                                   '-R', '1.57', '-P', '0.0', '-Y', '0',
+                                   '-x', '0.0', '-y', '0.0', '-z', '0.0',
+                                   '-R', '0.0', '-P', '0.0', '-Y', '0',
                                    ],
                         output='screen',
                         name='spawn_entity2',)

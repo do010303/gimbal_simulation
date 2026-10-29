@@ -68,8 +68,8 @@ def generate_launch_description():
         executable='create',
         arguments=['-topic', 'robot_description',
                    '-name', 'Box',
-                   '-x', '0.0', '-y', '0.0', '-z', '1.0',
-                   '-R', '1.57', '-P', '0.0', '-Y', '0'],
+                   '-x', '0.0', '-y', '0.0', '-z', '0.0',
+                   '-R', '0.0', '-P', '0.0', '-Y', '0'],
         output='screen'
     )
     
